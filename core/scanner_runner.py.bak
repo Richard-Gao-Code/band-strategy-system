@@ -1,0 +1,173 @@
+import time
+import traceback
+from pathlib import Path
+from typing import Any
+
+from src.thsbt.data import load_bars_from_csv
+from src.thsbt.event_engine import EventBacktestEngine
+from src.thsbt.platform_breakout import PlatformBreakoutConfig, PlatformBreakoutStrategy
+from src.thsbt.channel_hf import ChannelHFConfig, ChannelHFStrategy
+from src.thsbt.types import BacktestConfig
+
+def scan_strategy_for_symbol_path(
+    symbol: str,
+    data_path: Path,
+    index_path: Path | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Run strategy for a single symbol and return pending entry signals on the last day.
+    """
+    try:
+        bars = load_bars_from_csv(data_path, symbol=symbol)
+        if not bars:
+             return {"symbol": symbol, "error": "No data loaded"}
+
+        last_date = bars[-1].dt
+
+        # Load index bars if needed
+        benchmark_bars = []
+        if index_path:
+            index_symbol = config.get('index_symbol', '000300.SH')
+            benchmark_bars = load_bars_from_csv(index_path, symbol=index_symbol)
+            # Align dates if possible, or just pass them all
+            
+        # Create config
+        cfg = BacktestConfig(
+            initial_cash=config.get('initial_cash', 1000000.0),
+        )
+        
+        # Strategy Config
+        pcfg = PlatformBreakoutConfig(
+            platform_min_days=config.get('platform_min', 20),
+            platform_max_days=config.get('platform_max', 60),
+            platform_max_amplitude=config.get('platform_amp', 0.10),
+            volume_multiple=config.get('vol_mult', 1.5),
+            initial_stop_atr_mult=config.get('atr_stop_mult', 1.5),
+            trailing_activate_profit=config.get('trailing_profit', 0.15),
+            trailing_atr_mult=config.get('trailing_atr_mult', 2.0),
+            breakout_min_pct=config.get('breakout_min_pct', 0.03),
+            gap_open_max_pct=config.get('gap_open_max_pct', 0.01),
+            initial_stop_pct=config.get('initial_stop_pct', 0.0),
+            risk_per_trade=config.get('risk_pct', 0.01),
+            max_symbol_exposure=config.get('max_symbol', 0.20),
+            max_total_exposure=config.get('max_total', 0.80),
+            account_drawdown_pause=config.get('dd_pause', 0.15),
+            loss_streak_pause_count=config.get('loss_streak_count', 3),
+            loss_streak_pause_pct=config.get('loss_streak_pct', 0.05),
+            platform_max_single_day_pct=config.get('platform_max_single_day_pct', 0.05),
+            platform_min_slope=config.get('platform_min_slope', -0.005),
+            platform_max_slope=config.get('platform_max_slope', 0.005),
+            max_symbols_per_day=config.get('max_symbols_per_day', 5),
+            enable_trend_exit=config.get('enable_trend_exit', False),
+            enable_pe_filter=config.get('enable_pe_filter', False),
+            require_index_confirm=config.get('require_index_confirm', True),
+            index_symbol=config.get('index_symbol', '000300.SH'),
+            stop_atr_days=config.get('atr_days', 14),
+            max_holding_days=config.get('max_holding_days', 20),
+            pe_ttm_max=config.get('pe_ttm_max', 60.0),
+            min_avg_amount_20d=config.get('min_avg_amount_20d', 0.0),
+            min_market_cap=config.get('min_market_cap', 0.0),
+        )
+        
+        strategy = PlatformBreakoutStrategy(bars=bars, config=pcfg)
+        engine = EventBacktestEngine(config=cfg)
+        engine.run(bars=bars, strategy=strategy, benchmark_bars=benchmark_bars)
+        
+        # Check for signals
+        signals = []
+        if symbol in strategy.entry_intents:
+            intent = strategy.entry_intents[symbol]
+            # Calculate Risk/Reward Ratio if possible, otherwise placeholder
+            # Risk = Price - Stop
+            risk = intent.breakout_price - intent.initial_stop
+            rr_ratio = 0.0
+            if risk > 0:
+                # Assuming target could be 3x risk or platform height
+                rr_ratio = (intent.platform_high - intent.platform_low) / risk
+                
+            signals.append({
+                "symbol": intent.symbol,
+                "date": intent.breakout_dt.isoformat(),
+                "price": intent.breakout_price,
+                "stop": intent.initial_stop,
+                "risk": intent.risk_per_share,
+                "platform_high": intent.platform_high,
+                "platform_low": intent.platform_low,
+                "risk_reward_ratio": round(rr_ratio, 2)
+            })
+
+        # Get last few decision logs for context
+        recent_logs = strategy.decision_logs[-5:] if strategy.decision_logs else []
+        
+        return {
+            "symbol": symbol,
+            "last_date": last_date.isoformat(),
+            "signals": signals,
+            "logs": recent_logs
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        return {"symbol": symbol, "error": str(e)}
+
+def scan_channel_hf_for_symbol_path(
+    symbol: str,
+    data_path: Path,
+    index_path: Path | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Run Channel HF strategy for a single symbol and return context.
+    """
+    try:
+        bars = load_bars_from_csv(data_path, symbol=symbol)
+        if not bars:
+            return {"symbol": symbol, "error": "No data loaded"}
+
+        last_date = bars[-1].dt
+
+        # Load index bars if needed
+        benchmark_bars = []
+        if index_path:
+            index_symbol = config.get("index_symbol", "000300.SH")
+            benchmark_bars = load_bars_from_csv(index_path, symbol=index_symbol)
+
+        # Strategy Config
+        hcfg = ChannelHFConfig(
+            channel_period=config.get("channel_period", 20),
+            buy_touch_eps=config.get("buy_touch_eps", 0.002),
+            sell_trigger_eps=config.get("sell_trigger_eps", 0.002),
+            entry_fill_eps=config.get("entry_fill_eps", 0.002),
+            exit_fill_eps=config.get("exit_fill_eps", 0.002),
+            stop_loss_pct=1.0 - config.get("stop_loss_pct", 0.97),
+            max_holding_days=config.get("max_holding_days", 20),
+            cooling_period=config.get("cooling_period", 5),
+            slope_abs_max=config.get("slope_abs_max", 0.01),
+            slope_vol_max=config.get("slope_vol_max", 0.01),
+            vol_shrink_threshold=config.get("vol_shrink_threshold", 0.9),
+        )
+
+        strategy = ChannelHFStrategy(bars=bars, config=hcfg, index_bars=benchmark_bars)
+        engine = EventBacktestEngine(config=BacktestConfig())
+        engine.run(bars=bars, strategy=strategy, benchmark_bars=benchmark_bars)
+
+        # Get last log for the symbol
+        last_log = {}
+        if strategy.signal_logs:
+            # Find the last log for this symbol
+            for log in reversed(strategy.signal_logs):
+                if log["symbol"] == symbol:
+                    last_log = log
+                    break
+
+        return {
+            "symbol": symbol,
+            "last_date": last_date.isoformat(),
+            "env": last_log,
+            "signals": [last_log] if last_log.get("final_signal") == 1 else [],
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        return {"symbol": symbol, "error": str(e)}

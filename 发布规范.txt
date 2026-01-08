@@ -1,0 +1,60 @@
+发布规范（exe 与数据/参数同目录，拷贝即用）
+
+1) 目录结构（打包后建议统一成这样） 把所有发布内容放到一个目录里，例如 CHHF_RELEASE\ ：
+
+- CHHF_RELEASE\chhf.exe
+- CHHF_RELEASE\data\
+  - CHHF_RELEASE\data\stocks\000300.SH.csv
+  - CHHF_RELEASE\data\stocks\*.csv （股票数据）
+- CHHF_RELEASE\params\
+  - CHHF_RELEASE\params\chhf_stage2_final_main_and_backup.json
+  - CHHF_RELEASE\params\其它*.json
+- CHHF_RELEASE\out\ （输出目录，空目录也要带上）
+2) 打包规范（生成 chhf.exe） 在开发机 D:\BIG_MD\trae\RUSS ：
+
+```
+cd D:\BIG_MD\trae\RUSS
+python -m pip install -U pip pyinstaller
+pyinstaller --clean --noconfirm --onefile --name chhf 
+channel_hf_webui\core\__main__.py
+```
+产物：
+
+- D:\BIG_MD\trae\RUSS\dist\chhf.exe
+把 dist\chhf.exe 拷到 CHHF_RELEASE\ 根目录。
+
+3) 运行规范（所有路径都用相对路径，确保“同目录可用”） 在 CHHF_RELEASE\ 目录打开 PowerShell，再运行命令（注意开头是 .\chhf.exe ）：
+
+- 帮助：
+```
+.\chhf.exe -h
+.\chhf.exe chhf_optimize -h
+```
+- 2000 对照（示例：同目录结构固定写法）：
+```
+.\chhf.exe chhf_optimize `
+  --data-dir ".\data\stocks" `
+  --index-data ".\data\stocks\000300.SH.csv" `
+  --index-symbol 000300.SH `
+  --beg 2022-01-01 --end 2025-12-31 `
+  --sample-size 2000 `
+  --params-file ".\params\chhf_stage2_final_main_and_backup.
+  json" `
+  --robust-segments 4 `
+  --min-trades 8 `
+  --max-dd 0.18 `
+  --max-anomalies 0 `
+  --min-valid-ratio 0.45 `
+  --jobs 0 `
+  --out ".\out\chhf_opt_stage2_main_vs_backup_rob4.json"
+```
+4) 交付清单（发给其他电脑/同事就按这个打包）
+
+- 整个 CHHF_RELEASE\ 目录直接压缩成 zip
+- 目标机解压后，从该目录打开 PowerShell，按上面的相对路径命令运行即可
+5) 约束（提前写清楚，避免踩坑）
+
+- 目标机必须是 Windows x64（建议 Win10/11）
+- 数据 CSV 的命名要与程序一致：指数文件名必须是 000300.SH.csv （或你命令里指定的文件）
+- 输出目录 .\out\ 建议预先创建；没有也行，但要确保 exe 有权限写入当前目录
+如果你想再进一步做到“用户双击运行并自动用 . \data . \params . \out 默认路径”，需要加一个 run.ps1 启动脚本或在程序里加默认路径逻辑；你确认要不要“双击一键跑”，我再给你一版最省事的方案。

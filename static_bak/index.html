@@ -1,0 +1,2000 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Channel HF 扫描</title>
+  <link rel="icon" href="/static/favicon.svg" />
+  <link href="/static/vendor/tw-lite.css?v=1.0.19" rel="stylesheet" />
+  <!-- Chart.js removed; charts will gracefully skip if library not available -->
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg-main: #f8fafc;
+      --bg-card: #ffffff;
+      --border-color: #e2e8f0;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --nav-bg: #ffffff;
+      --table-header: #f1f5f9;
+    }
+
+    .dark {
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
+      --bg-main: #0f172a;
+      --bg-card: #1e293b;
+      --border-color: #334155;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --nav-bg: #1e293b;
+      --table-header: #334155;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body { 
+      font-size: 13px; 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      transition: background-color 0.3s ease, color 0.3s ease;
+      line-height: 1.4;
+    }
+    input, select, textarea { font-size: 13px !important; }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: #475569; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* Card & Container Styles */
+    .glass-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+    
+    .glass-card:hover {
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Table Enhancements */
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    th { 
+      background-color: var(--table-header);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+      font-size: 12px;
+      color: var(--text-muted);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.25rem 0.5rem !important;
+    }
+    td { padding: 0.25rem 0.5rem !important; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background-color: rgba(var(--primary), 0.05); }
+    .dark tr:hover td { background-color: rgba(59, 130, 246, 0.1); }
+    /* Fallback to clamp SVG size when Tailwind isn't loaded */
+    svg { width: 16px; height: 16px; }
+    header svg { width: 16px; height: 16px; }
+    /* Hide noisy hint text to avoid layout shift */
+    #app-hint { display: none; }
+
+    /* Navigation Styling */
+    .nav-btn {
+      position: relative;
+      transition: all 0.2s ease;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    .nav-btn:hover { color: var(--primary); background-color: rgba(var(--primary), 0.05) !important; border-radius: 6px; }
+    .nav-btn.active { color: var(--primary); background-color: rgba(var(--primary), 0.1) !important; border-radius: 6px; }
+    .nav-btn.active::after {
+      content: none;
+    }
+
+    /* Form Elements */
+    input, select, textarea {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-size: 12px;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+    .dark input:focus, .dark select:focus, .dark textarea:focus {
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    /* Buttons */
+    .btn-primary {
+      background-color: var(--primary);
+      color: white;
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-secondary {
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover { background-color: var(--table-header); border-color: var(--text-muted); }
+
+    /* Custom Animations */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    section[id^="view-"]:not(.hidden) {
+      animation: fadeIn 0.3s ease-out forwards;
+    }
+
+    /* Utils */
+    .hidden { display: none !important; }
+    .truncate-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <header class="bg-white border-b border-slate-200 h-10 flex items-center justify-between px-6 sticky top-0 z-50 transition-colors dark:bg-slate-900 dark:border-slate-800">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">C</div>
+        <h1 class="text-[14px] font-bold tracking-tight text-slate-800 dark:text-white">Channel HF</h1>
+      </div>
+      <nav class="flex items-center gap-3">
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="scan" id="nav-scan" onclick="setActiveView('scan')">扫描</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="config" id="nav-config" onclick="setActiveView('config')">配置</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="backtest" id="nav-backtest" onclick="setActiveView('backtest')">回测</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="pool" id="nav-pool" onclick="setActiveView('pool')">池子</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="journal" id="nav-journal" onclick="setActiveView('journal')">日记</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="analysis" id="nav-analysis" onclick="setActiveView('analysis')">交易分析</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="logs" id="nav-logs" onclick="setActiveView('logs')">日志</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="data" id="nav-data" onclick="setActiveView('data')">数据</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="tasks" id="nav-tasks" onclick="setActiveView('tasks')">任务</button>
+                <button class="nav-btn px-1 py-2 text-[14px]" data-view="selector" id="nav-selector" onclick="setActiveView('selector')">选股决策</button>
+        <button class="nav-btn px-1 py-2 text-[14px]" data-view="debug" id="nav-debug" onclick="setActiveView('debug')">策略调试</button>
+      </nav>
+    </div>
+    <div class="flex items-center gap-4">
+      <div id="app-hint" class="text-xs text-slate-400 dark:text-slate-500 font-bold"></div>
+      <button id="theme-toggle" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 transition-all" title="切换模式">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+  <main class="max-w-[1600px] mx-auto px-4 pb-4 pt-1 space-y-2">
+    <section id="view-scan" class="space-y-2">
+    <!-- 1. 基础参数 (顶部) -->
+    <section class="glass-card p-3">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+          基础参数
+        </h3>
+        <div class="flex items-center gap-2">
+          <button id="scan-btn" class="btn-primary px-4 py-1.5 rounded-lg text-sm font-semibold shadow-lg shadow-blue-500/20" onclick="runChannelHFScan()">开始扫描</button>
+          <button id="scan-cancel-btn" class="btn-secondary px-4 py-1.5 rounded-lg text-sm font-semibold border border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/30 hidden" onclick="cancelChannelHFScan()">中断</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div class="md:col-span-2">
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票文件目录地址</label>
+          <input id="scan-data-dir" class="form-input w-full" placeholder="例如：d:\\data\\stocks\\" value="data" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码（可选）</label>
+          <input id="scan-symbols" class="form-input w-full" placeholder="例如：000001.SZ, 600519.SH（多只用逗号/空格/换行）" value="" />
+        </div>
+        <div class="md:col-span-1">
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">指数数据文件</label>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer">
+                <input type="checkbox" id="scan-use-index" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span>启用</span>
+              </label>
+              <label class="flex items-center gap-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer" title="尝试追加东方财富实时快照（仅影响扫描，不影响回测）">
+                <input type="checkbox" id="scan-use-realtime" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                <span>实时</span>
+              </label>
+            </div>
+          </div>
+          <input id="scan-index-data" class="form-input w-full" placeholder="例如：d:\\data\\000300.SH.csv" value="" />
+        </div>
+        <div class="md:col-span-1">
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">指数代码</label>
+          <input id="scan-index-symbol" class="form-input w-full" value="000300.SH" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 扫描结果 (中间 - 核心位置) -->
+    <section class="glass-card overflow-hidden flex flex-col min-h-[400px]">
+      <div class="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/30">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+            </svg>
+            扫描结果
+          </h3>
+          <span id="scan-status" class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">待开始</span>
+        </div>
+        <div class="space-y-1">
+          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="scan-progress-bar" class="bg-blue-600 h-1.5 transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <div id="scan-progress-text" class="text-xs text-blue-600 font-semibold text-right"></div>
+        </div>
+      </div>
+      <div class="flex-1 overflow-auto max-h-[500px]">
+        <table class="min-w-full text-[12px] border-separate border-spacing-0">
+          <thead class="sticky top-0 z-10">
+            <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="symbol">股票</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="date">日期</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="indexBear">指数状态</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="slopeNorm">归一斜率</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="channelHeight">通道高度</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="upper">上轨</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="mid">中轨</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="lower">下轨</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="suggestBuy">建议买入价</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="stopLoss">止损价</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="suggestSell">建议卖出价</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="volRatio">量比</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer" data-sort-key="status">状态</th>
+              <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">备注</th>
+            </tr>
+          </thead>
+          <tbody id="scan-results" class="divide-y divide-slate-100 dark:divide-slate-800/50"></tbody>
+        </table>
+      </div>
+    </section>
+
+    </section>
+
+    <section id="view-config" class="space-y-2 hidden">
+      <!-- 1. 参数预设 -->
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+            </svg>
+            参数预设
+          </h3>
+          <div class="flex items-center gap-2">
+            <div id="active-preset-tag" class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/40 hidden">当前应用：<span id="active-preset-name"></span></div>
+            <span id="preset-status" class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500"></span>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 uppercase tracking-wider">选择模型</label>
+            <select id="preset-select" class="form-input w-full"></select>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 uppercase tracking-wider">模型名称</label>
+            <input id="preset-name" class="form-input w-full" placeholder="例如：默认/保守/激进" />
+          </div>
+          <div class="md:col-span-2 flex items-end">
+            <button id="preset-save" class="btn-secondary w-full py-2 text-xs">保存</button>
+          </div>
+          <div class="md:col-span-2 flex items-end">
+            <button id="preset-apply" class="btn-primary w-full py-2 text-xs shadow-lg shadow-blue-500/20">应用</button>
+          </div>
+          <div class="md:col-span-2 flex items-end">
+            <button id="preset-delete" class="btn-secondary border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/30 w-full py-2 text-xs">删除</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. 策略参数 -->
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            策略参数
+          </h3>
+          <span class="text-[10px] text-slate-400 dark:text-slate-500 font-bold italic">点击参数显示详细说明</span>
+        </div>
+
+        <div class="space-y-3">
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">核心通道参数（策略基础）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">通道周期 (channel_period)</label>
+                <input id="cfg-channel-period" type="number" class="form-input w-full" value="20" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">通道高度 (min_height)</label>
+                <input id="cfg-min-height" type="number" step="0.01" class="form-input w-full" value="0.05" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">中轨空间 (min_room)</label>
+                <input id="cfg-min-room" type="number" step="0.005" class="form-input w-full" value="0.015" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">斜率上限 (slope_abs_max)</label>
+                <input id="cfg-slope-abs" type="number" step="0.001" class="form-input w-full" value="0.01" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">归一斜率下限 (min_slope_norm)</label>
+                <input id="cfg-min-slope-norm" type="number" step="0.001" class="form-input w-full" value="-0.002" />
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">买卖执行参数（交易设置）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">买入容差 (buy_touch_eps)</label>
+                <input id="cfg-buy-eps" type="number" step="0.001" class="form-input w-full" value="0.005" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">卖出触发 (sell_trigger_eps)</label>
+                <input id="cfg-sell-eps" type="number" step="0.001" class="form-input w-full" value="0.005" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">卖出目标模式 (sell_target_mode)</label>
+                <select id="cfg-sell-mode" class="form-input w-full">
+                  <option value="mid_up" selected>中轨 * 上系数 (推荐)</option>
+                  <option value="mid_down">中轨 * 下系数</option>
+                  <option value="upper_down">上轨 * 下系数</option>
+                </select>
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">买入滑点 (entry_fill_eps)</label>
+                <input id="cfg-entry-eps" type="number" step="0.001" class="form-input w-full" value="0.002" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">卖出滑点 (exit_fill_eps)</label>
+                <input id="cfg-exit-eps" type="number" step="0.001" class="form-input w-full" value="0.002" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">止损倍数 (stop_loss_mul)</label>
+                <input id="cfg-stop-loss" type="number" step="0.01" class="form-input w-full" value="0.97" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">恐慌阈值 (panic_eps)</label>
+                <input id="cfg-stop-loss-panic-eps" type="number" step="0.01" class="form-input w-full" value="0.02" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">最大持仓天数 (max_hold_days)</label>
+                <input id="cfg-max-hold" type="number" class="form-input w-full" value="20" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">冷却期 (cooling_period)</label>
+                <input id="cfg-cool" type="number" class="form-input w-full" value="5" />
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">机会过滤参数（质量筛选）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">量能下限 (vol_shrink_min)</label>
+                <input id="cfg-vol-shrink-min" type="number" step="0.01" class="form-input w-full" placeholder="不填=不限制" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">量能上限 (vol_shrink_max)</label>
+                <input id="cfg-vol-shrink-max" type="number" step="0.01" class="form-input w-full" value="0.9" placeholder="不填=不限制" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">波动率比率上限 (volatility_ratio_max)</label>
+                <input id="cfg-volatility-ratio-max" type="number" min="0.5" max="1.5" step="0.05" class="form-input w-full" value="1.0" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">趋势均线 (trend_ma)</label>
+                <input id="cfg-trend-ma-period" type="number" class="form-input w-full" value="0" placeholder="0=不启用" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">破位阈值 (break_eps)</label>
+                <input id="cfg-break-eps" type="number" step="0.005" class="form-input w-full" value="0.02" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">扫描天数 (scan_recent_days)</label>
+                <input id="cfg-recent-days" type="number" class="form-input w-full" value="20" />
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">企稳确认参数（底部验证）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">企稳确认窗口 (pivot_confirm_days)</label>
+                <input id="cfg-pivot-confirm-days" type="number" class="form-input w-full" value="3" placeholder="0=不启用" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">不创新低容差 (pivot_no_new_low_tol)</label>
+                <input id="cfg-pivot-no-new-low-tol" type="number" step="0.001" class="form-input w-full" value="0.01" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">反弹幅度 (pivot_rebound_amp)</label>
+                <input id="cfg-pivot-rebound-amp" type="number" step="0.001" class="form-input w-full" value="0.02" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">指数均线 (index_ma)</label>
+                <input id="cfg-index-trend-ma-period" type="number" class="form-input w-full" value="0" placeholder="0=不启用" />
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">风控与目标参数（收益控制）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">最小利润 (min_profit)</label>
+                <input id="cfg-min-mid-profit-pct" type="number" step="0.001" class="form-input w-full" value="0" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">最小风险收益比 (min_rr)</label>
+                <input id="cfg-min-rr-to-mid" type="number" step="0.1" class="form-input w-full" value="0" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">最大持仓数 (max_positions)</label>
+                <input id="cfg-max-positions" type="number" class="form-input w-full" value="5" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">单票仓位上限 (max_position_pct)</label>
+                <input id="cfg-max-position-pct" type="number" step="0.01" class="form-input w-full" value="0.10" />
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-900/20">
+            <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2">条件开关（是/否选项）</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-stop-loss-on-close" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">止损按收盘</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-require-index-confirm" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">指数确认</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-pivot-confirm-requires-sig" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">显著低点才启用企稳</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-index-bear-exit" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">熊市强退</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-fill-at-close" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">收盘成交</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-require-rebound" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">要求反弹</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="cfg-require-green" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">要求阳线</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <input id="cfg-slope-vol" type="hidden" value="0.01" />
+      </section>
+
+      <!-- 3. 参数说明 -->
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">参数说明</h3>
+          </div>
+          <button onclick="showParamHelpModal()" class="btn-secondary px-3 py-1.5 text-[10px]">详细说明</button>
+        </div>
+        <div id="config-help" class="bg-slate-50/50 dark:bg-slate-800/50 rounded-xl p-3 min-h-[60px]">
+          <div class="text-[12px] font-bold text-slate-400 dark:text-slate-500 italic">提示：点击上方任意参数输入框，即在此处显示该参数的定义、意义与示例。</div>
+          <div id="config-help-content" class="text-[13px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"></div>
+        </div>
+      </section>
+
+
+    </section>
+
+    <section id="view-backtest" class="space-y-2 hidden">
+      <!-- 1. 回测配置 -->
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            历史批量回测（通道高频）
+          </h3>
+          <div class="flex items-center gap-2">
+            <button id="bt-btn" class="btn-primary px-4 py-1.5 text-xs shadow-lg shadow-blue-500/20" onclick="runChannelHFBacktest()">开始回测</button>
+            <button class="btn-secondary px-4 py-1.5 text-xs" onclick="showBacktestHistory()">历史记录</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票文件目录地址</label>
+            <input id="bt-data-dir" class="form-input w-full" placeholder="例如：d:\\data\\stocks\\" value="data" />
+          </div>
+          <div class="md:col-span-3">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">指数数据文件</label>
+              <label class="flex items-center gap-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="bt-use-index" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">启用</span>
+              </label>
+            </div>
+            <input id="bt-index-data" class="form-input w-full" placeholder="例如：d:\\data\\hs300.csv" value="" />
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码（可选）</label>
+            <input id="bt-symbols" class="form-input w-full" placeholder="例如：000001.SZ, 600519.SH（多只用逗号/空格/换行）" value="" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">指数代码</label>
+            <input id="bt-index-symbol" class="form-input w-full" value="000300.SH" />
+          </div>
+          
+          <div class="md:col-span-4">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">评分与稳健分析</label>
+            <div class="flex items-center gap-2 h-[38px]">
+              <label class="flex items-center gap-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="bt-calc-score" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">计算评分</span>
+              </label>
+              <label class="flex items-center gap-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                <input type="checkbox" id="bt-calc-robust" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">稳健分段</span>
+              </label>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-slate-400">分段数:</span>
+                <input id="bt-robust-segments" type="number" min="0" class="form-input w-16 text-center" value="4" disabled />
+              </div>
+            </div>
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">日期区间（可选）</label>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="bt-beg" class="form-input w-full" placeholder="开始日期: 2023-01-01" />
+              <input id="bt-end" class="form-input w-full" placeholder="结束日期: 2025-12-31" />
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="text-[11px] font-bold text-slate-600 dark:text-slate-300">批量参数测试</h4>
+            <div class="flex items-center gap-2">
+              <button id="pt-run-btn" class="btn-primary px-4 py-1.5 text-[10px]">开始批量测试</button>
+              <button id="pt-export-btn" class="btn-secondary px-4 py-1.5 text-[10px]" disabled>导出Excel</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码（逗号/换行）</label>
+              <textarea id="pt-symbols" class="form-input w-full min-h-[92px]" placeholder="例如：300413.SZ,000001.SZ&#10;002475.SZ"></textarea>
+            </div>
+            <div class="md:col-span-8">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">参数组合（每行一个组合）</label>
+              <textarea id="pt-param-sets" class="form-input w-full min-h-[92px]" placeholder="例如：vol_shrink_min=1.02, vol_shrink_max=1.12&#10;vol_shrink_min=1.00, vol_shrink_max=1.15"></textarea>
+              <div class="mt-1 text-[10px] text-slate-400">空行会忽略；没写的参数将使用上方当前策略参数</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">网格参数（可选，自动生成组合）</label>
+              <button id="pt-grid-gen-btn" class="text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 bg-transparent border-0 p-0 cursor-pointer">生成到列表 ⬇</button>
+            </div>
+            <textarea id="pt-param-grid" class="form-input w-full min-h-[70px]" placeholder="例如：vol_shrink_min: [1.00, 1.02, 1.05]&#10;vol_shrink_max: [1.12, 1.15, 1.18]"></textarea>
+          </div>
+
+          <div id="pt-status" class="text-[10px] font-bold text-slate-400 dark:text-slate-500">待开始</div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+        <div class="lg:col-span-8 space-y-2">
+          <!-- 2. 回测结果 -->
+          <section class="glass-card overflow-hidden flex flex-col min-h-[400px]">
+          <div class="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">回测结果（批量）<span id="bt-filter-count" class="text-[10px] font-normal text-slate-400 ml-1"></span></h3>
+              <span id="bt-status" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 uppercase tracking-tight">待开始</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="bt-export-csv" class="btn-secondary px-3 py-1.5 text-[10px]" onclick="exportBacktestResultsToCSV()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                导出CSV(表格)
+              </button>
+              <button id="bt-download-full-csv" class="btn-secondary px-3 py-1.5 text-[10px] hidden" onclick="downloadBacktestFull('csv')" disabled>下载CSV(全集)</button>
+              <button id="bt-download-full-json" class="btn-secondary px-3 py-1.5 text-[10px] hidden" onclick="downloadBacktestFull('json')" disabled>下载JSON(全集)</button>
+            </div>
+          </div>
+          
+          <div class="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+              <div class="md:col-span-3">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 tracking-wider">筛选（代码/备注）</label>
+                <input id="bt-filter-text" class="form-input w-full py-1.5 text-xs" placeholder="例如：600/000001.SZ" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 tracking-wider">最低年化</label>
+                <input id="bt-filter-min-annualized" type="number" step="0.01" class="form-input w-full py-1.5 text-xs" value="0.03" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 tracking-wider">最低夏普</label>
+                <input id="bt-filter-min-sharpe" type="number" step="0.01" class="form-input w-full py-1.5 text-xs" value="0.5" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 tracking-wider">最大回撤 ≤</label>
+                <input id="bt-filter-max-dd" type="number" step="0.01" class="form-input w-full py-1.5 text-xs" value="0.05" />
+              </div>
+              <div class="md:col-span-1">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 tracking-wider">交易 ≥</label>
+                <input id="bt-filter-min-trades" type="number" step="1" class="form-input w-full py-1.5 text-xs" value="1" />
+              </div>
+              <div class="md:col-span-2 flex items-end gap-2">
+                <button id="bt-filter-apply" class="btn-primary flex-1 py-1.5 text-xs">应用</button>
+                <button id="bt-filter-clear" class="btn-secondary flex-1 py-1.5 text-xs">清空</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex-1 overflow-auto max-h-[520px]">
+            <table class="min-w-full text-[10px] border-separate border-spacing-0">
+              <thead class="sticky top-0 z-10">
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors border-b border-slate-100 dark:border-slate-800" data-sort-key="symbol">股票</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors border-b border-slate-100 dark:border-slate-800" data-sort-key="range">区间</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="totalReturn">总收益</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="annualizedReturn">年化</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="maxDrawdown">回撤</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="drawdownDuration">回撤天</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors border-b border-slate-100 dark:border-slate-800" data-sort-key="maxDrawdownDate">回撤日期</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="sharpeRatio">夏普</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="expectancy">期望</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="profitFactor">获利因子</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="avgHoldDays">均持仓</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="score">评分</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="scoreRobust">稳健</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="winRate">胜率</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="trades">交易</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors border-b border-slate-100 dark:border-slate-800" data-sort-key="maxWins">连胜/败</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-right border-b border-slate-100 dark:border-slate-800" data-sort-key="finalEquity">期末权益</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800" data-sort-key="anomalies">异常</th>
+                </tr>
+              </thead>
+              <tbody id="bt-results" class="divide-y divide-slate-100 dark:divide-slate-800/50"></tbody>
+            </table>
+          </div>
+          </section>
+          <!-- 3. 交易明细 -->
+          <section class="glass-card overflow-hidden flex flex-col min-h-[300px]">
+          <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+                交易明细
+              </h3>
+              <div id="bt-detail-status" class="text-[10px] font-bold text-slate-400 dark:text-slate-500">-</div>
+            </div>
+            <button id="bt-detail-clear" class="btn-secondary px-3 py-1.5 text-[10px]">清空</button>
+          </div>
+          
+          <div class="flex-1 overflow-auto">
+            <table class="min-w-full text-[10px] border-separate border-spacing-0">
+              <thead class="sticky top-0 z-10">
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">股票</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">入场日期</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">出场日期</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">数量</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">入场价</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">出场价</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">入场原因</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">出场原因</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">初始止损</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">移动止损</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">盈亏</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">累计</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">收益率</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">R倍数</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-right border-b border-slate-100 dark:border-slate-800">天数</th>
+                  <th class="px-4 py-3 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">指数</th>
+                </tr>
+              </thead>
+              <tbody id="bt-detail-body" class="divide-y divide-slate-100 dark:divide-slate-800/50"></tbody>
+            </table>
+            <pre id="bt-detail-pre" class="hidden px-5 py-3 text-[10px] bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-400 overflow-auto whitespace-pre font-mono max-h-[300px] border-t border-slate-100 dark:border-slate-800/50"></pre>
+          </div>
+          </section>
+        </div>
+
+        <aside class="lg:col-span-4">
+          <section id="bt-param-panel" class="glass-card overflow-hidden flex flex-col lg:sticky lg:top-4">
+            <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" />
+                </svg>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">生效参数</h3>
+              </div>
+              <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500">点击参数可跳转</span>
+            </div>
+            <div class="p-3 space-y-2">
+              <div id="bt-param-panel-summary" class="text-[11px] text-slate-600 dark:text-slate-300"></div>
+              <div id="bt-param-panel-groups" class="space-y-3"></div>
+              <div class="text-[10px] text-slate-400 dark:text-slate-500">
+                标记：<span class="inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">最近修改</span>
+                <span class="ml-2 inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">默认≠当前</span>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </section>
+
+    <section id="view-selector" class="space-y-2 hidden">
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            选股决策
+          </h3>
+          <button id="selector-run-btn" class="btn-primary px-6 py-2 rounded-lg text-sm font-semibold shadow-lg shadow-purple-500/20" onclick="runSelector()">开始选股</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <div class="md:col-span-3">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">上轨下系文件路径 (path_ud)</label>
+              <input id="sel-path-ud" class="form-input w-full" placeholder="例如：d:\...\上轨下系100.csv" />
+            </div>
+            <div class="md:col-span-3">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">中轨上系文件路径 (path_mu)</label>
+              <input id="sel-path-mu" class="form-input w-full" placeholder="例如：d:\...\中轨上系100.csv" />
+            </div>
+            <div class="md:col-span-1">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">最大回撤 (max_mdd)</label>
+              <input id="sel-max-mdd" type="number" step="0.01" class="form-input w-full" value="0.10" />
+            </div>
+            <div class="md:col-span-1">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">最小交易次数 (min_trd)</label>
+              <input id="sel-min-trd" type="number" step="1" class="form-input w-full" value="15" />
+            </div>
+            <div class="md:col-span-1">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">最小Calmar (calmar_min)</label>
+              <input id="sel-calmar-min" type="number" step="0.1" class="form-input w-full" value="3.0" />
+            </div>
+        </div>
+      </section>
+      
+      <section class="glass-card overflow-hidden flex flex-col min-h-[400px]">
+         <div class="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/30 flex justify-between items-center">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">分析结果</h3>
+            <span id="selector-status" class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">待运行</span>
+         </div>
+         <div class="p-3 overflow-auto">
+            <pre id="selector-results" class="text-xs font-mono whitespace-pre-wrap text-slate-600 dark:text-slate-400"></pre>
+         </div>
+      </section>
+    </section>
+
+
+
+
+
+    <section id="view-pool" class="space-y-2 hidden">
+      <!-- 1. 股票池添加与筛选 -->
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.783.57-1.838-.197-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+            通道高频明星股票池
+          </h3>
+          <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight">本地保存 (localStorage) · 上限 500</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码</label>
+            <input id="pool-symbol" class="form-input w-full" placeholder="例如：000001.SZ" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">预警价</label>
+            <input id="pool-alert-price" type="number" step="0.01" class="form-input w-full" placeholder="可选" />
+          </div>
+          <div class="md:col-span-8 flex items-end gap-2 flex-wrap">
+            <button id="pool-add" class="btn-primary px-4 py-1.5 text-xs shadow-lg shadow-blue-500/20">添加/更新</button>
+            <button id="pool-watch" class="btn-secondary px-4 py-1.5 text-xs">星池监控</button>
+            <button id="pool-backtest" class="btn-secondary px-4 py-1.5 text-xs">用池子回测</button>
+            <button id="pool-scan" class="btn-secondary px-4 py-1.5 text-xs">用池子扫描</button>
+            <button id="pool-clear" class="btn-secondary border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/30 px-4 py-1.5 text-xs ml-auto">清空</button>
+          </div>
+        </div>
+
+        <div class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="w-32">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">筛选名称</label>
+              <input id="pool-filter-text" class="form-input w-full py-1.5 text-xs" placeholder="筛选..." />
+            </div>
+            <div class="w-20">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">评分≥</label>
+              <input id="pool-min-score" type="number" step="0.1" class="form-input w-full py-1.5 text-xs" />
+            </div>
+            <div class="w-20">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">稳健≥</label>
+              <input id="pool-min-robust" type="number" step="0.1" class="form-input w-full py-1.5 text-xs" />
+            </div>
+            <div class="w-20">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">年化≥</label>
+              <input id="pool-min-annualized" type="number" step="0.01" class="form-input w-full py-1.5 text-xs" />
+            </div>
+            
+            <div class="flex items-center gap-2 ml-auto pl-5 border-l border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">回测导入</span>
+              <input id="pool-topn" type="number" min="1" max="500" class="form-input w-16 py-1.5 text-xs" value="30" />
+              <select id="pool-orderby" class="form-input py-1.5 text-xs">
+                <option value="score_robust">按稳健</option>
+                <option value="score">按评分</option>
+              </select>
+              <button id="pool-import-bt" class="btn-primary px-4 py-1.5 text-xs" onclick="poolImportFromBacktest()">导入</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. 股票池列表 -->
+      <section class="glass-card overflow-hidden flex flex-col min-h-[400px]">
+        <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">股票列表 <span id="pool-count" class="ml-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-full text-[10px]">0</span></h3>
+            <div id="pool-batch-actions" class="hidden flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
+              <button id="pool-batch-del" class="btn-secondary border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/30 px-3 py-1.5 text-[10px]">批量删除</button>
+              <button id="pool-batch-bt" class="btn-secondary px-3 py-1.5 text-[10px]">批量回测</button>
+              <button id="pool-batch-scan" class="btn-secondary px-3 py-1.5 text-[10px]">批量扫描</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="pool-export-csv" class="btn-secondary px-3 py-1.5 text-[10px]">导出CSV</button>
+            <button id="pool-export" class="btn-secondary px-3 py-1.5 text-[10px]">导出JSON</button>
+            <button id="pool-import" class="btn-secondary px-3 py-1.5 text-[10px]">导入数据</button>
+          </div>
+        </div>
+        
+        <div class="flex-1 overflow-auto">
+          <table class="min-w-full text-[10px] border-separate border-spacing-0">
+            <thead>
+              <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                <th class="px-3 py-2 w-8 border-b border-slate-100 dark:border-slate-800 sticky top-0 z-20 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm"><input type="checkbox" id="pool-select-all" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" /></th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">股票</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">区间</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">总收益</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">年化</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">回撤天</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">现价</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">预警价</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">信号</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">夏普</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">获利因子</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">评分</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">稳健</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">胜率</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">交易</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">期末权益</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">备注</th>
+                <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">操作</th>
+              </tr>
+            </thead>
+            <tbody id="pool-list" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3. 批量导入导出弹窗容器 -->
+      <div id="pool-io-container" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all duration-300">
+        <section class="glass-card p-6 w-full max-w-2xl shadow-2xl border border-white/20 dark:border-slate-700/50">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">导入/导出数据</h3>
+            <button onclick="document.getElementById('pool-io-container').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <textarea id="pool-io" class="form-input w-full h-80 font-mono text-[10px] mb-4 focus:ring-2 focus:ring-blue-500/20" placeholder='支持：1) JSON 数组：[{"symbol":"000001.SZ","note":"..."}] 2) 纯代码列表（换行/逗号分隔）'></textarea>
+          <div class="flex justify-between items-center">
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 italic">导入将自动去重（按代码不区分大小写）并覆盖旧数据</div>
+            <div class="flex gap-2">
+              <button onclick="document.getElementById('pool-io-container').classList.add('hidden')" class="btn-secondary px-4 py-1.5 text-xs">取消</button>
+              <button id="pool-import-confirm" class="btn-primary px-6 py-1.5 text-xs">确认导入</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-journal" class="space-y-2 hidden">
+      <section class="glass-card p-3 space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            交易日记
+          </h3>
+          <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight">本地保存 (localStorage)</div>
+        </div>
+        <div class="text-[10px] leading-relaxed text-red-600/90 dark:text-red-400/90 space-y-2 bg-red-50/50 dark:bg-red-900/10 p-3 rounded-lg border border-red-100/50 dark:border-red-900/20">
+          <div class="flex gap-2">
+            <span class="font-bold flex-shrink-0">买卖准则：</span>
+            <span>只按系统信号交易；不追涨不抄底；按计划执行；不因盈亏临时改规则。信号出来后第二天交易，买入一旦涨了脱离系统建议买入价太多，就不要追了，回落后再买入。卖出时，一旦信号发出，第二天开盘就卖，不管涨跌。</span>
+          </div>
+          <div class="flex gap-2">
+            <span class="font-bold flex-shrink-0">纪律说明：</span>
+            <span>下单前写清依据与心理；若未按策略必须写原因；单笔投入比例可控，先活着再赚。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card p-3 space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            记录明细
+          </h3>
+          <div class="flex items-center gap-2">
+            <button id="journal-add" class="btn-primary px-4 py-1.5 text-xs">保存</button>
+            <button id="journal-clear" class="btn-secondary px-4 py-1.5 text-xs">清空表单</button>
+            <button id="journal-clear-all" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30 px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200">清空全部</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">日期</label>
+            <input id="journal-date" type="date" class="form-input w-full" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">股票代码</label>
+            <input id="journal-symbol" class="form-input w-full" placeholder="000001.SZ" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">交易方向</label>
+            <select id="journal-action" class="form-input w-full">
+              <option value="BUY" selected>买入</option>
+              <option value="SELL">卖出</option>
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">价格</label>
+            <input id="journal-price" type="number" step="0.01" class="form-input w-full" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">数量</label>
+            <input id="journal-qty" type="number" step="1" class="form-input w-full" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">策略标签</label>
+            <input id="journal-tags" class="form-input w-full" placeholder="突破, 回踩" />
+          </div>
+          
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">系统建议买入价</label>
+            <input id="journal-sys-buy" type="number" step="0.0001" class="form-input w-full" placeholder="可选" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">系统建议止损价</label>
+            <input id="journal-sys-stop" type="number" step="0.0001" class="form-input w-full" placeholder="可选" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">设定止损价</label>
+            <input id="journal-stop" type="number" step="0.0001" class="form-input w-full" placeholder="可选" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">系统建议卖出价</label>
+            <input id="journal-sys-sell" type="number" step="0.0001" class="form-input w-full" placeholder="可选" />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">投入比例</label>
+            <input id="journal-ratio" class="form-input w-full" placeholder="30% 或 0.3" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">总资金</label>
+            <input id="journal-capital" type="number" step="0.01" class="form-input w-full" placeholder="可选" />
+          </div>
+          <div class="md:col-span-2 flex items-end pb-1">
+            <label class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+              <input id="journal-follow" type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 transition-all duration-200" checked />
+              <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">按策略执行</span>
+            </label>
+          </div>
+          <div class="md:col-span-6">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">未按策略原因</label>
+            <input id="journal-deviation" class="form-input w-full" />
+          </div>
+
+          <div class="md:col-span-6">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">交易依据</label>
+            <textarea id="journal-basis" class="form-input w-full h-24 resize-none" placeholder="写下你的入场理由..."></textarea>
+          </div>
+          <div class="md:col-span-6">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">心理活动</label>
+            <textarea id="journal-psych" class="form-input w-full h-24 resize-none" placeholder="此刻的心情、担忧或期待..."></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card overflow-hidden flex flex-col min-h-[350px]">
+        <div class="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              交易列表
+              <span class="ml-1 px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-md text-[10px] font-medium" id="journal-count">0</span>
+            </h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="journal-export-csv" class="btn-secondary px-3 py-1.5 text-[11px] flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              导出 CSV
+            </button>
+          </div>
+        </div>
+        <div class="overflow-auto flex-1">
+          <table class="min-w-full text-[11px] border-separate border-spacing-0">
+            <thead>
+              <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">日期</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">代码</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">买卖</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">价格</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">数量</th>
+                <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">盈亏</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">标签</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">依据/心理</th>
+                <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">操作</th>
+              </tr>
+            </thead>
+            <tbody id="journal-list" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- 交易分析视图 -->
+    <section id="view-analysis" class="space-y-2 hidden">
+      <section id="journal-charts-container" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="md:col-span-2 glass-card p-3">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              盈亏曲线
+            </h3>
+            <div id="journal-stats-summary" class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight"></div>
+          </div>
+          <div class="h-[200px] w-full">
+            <canvas id="journal-pnl-chart"></canvas>
+          </div>
+        </div>
+        <div class="glass-card p-3">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 11h.01M7 15h.01M13 7h.01M13 11h.01M13 15h.01M17 7h.01M17 11h.01M17 15h.01M11 11H7a2 2 0 00-2 2v4a2 2 0 002 2h4a2 2 0 002-2v-4a2 2 0 00-2-2zM11 5a2 2 0 012 2v2a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4z" />
+            </svg>
+            标签统计
+          </h3>
+          <div class="h-[200px] w-full">
+            <canvas id="journal-tags-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card p-3 mt-2">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            智能问数分析
+          </h3>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-2">
+           <div class="md:col-span-1">
+             <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">选择数据文件</label>
+             <select id="smart-file-select" class="form-input w-full">
+               <option value="">加载中...</option>
+             </select>
+           </div>
+           <div class="md:col-span-3">
+             <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">你的问题</label>
+             <div class="flex gap-2">
+               <input id="smart-query-input" class="form-input flex-1" placeholder="例如：找出年化收益大于5%的股票" />
+               <button id="smart-ask-btn" class="btn-primary px-4 py-1.5 whitespace-nowrap" onclick="runSmartAsk()">查询</button>
+             </div>
+           </div>
+        </div>
+
+        <div id="smart-result-container" class="hidden space-y-2">
+            <div class="p-3 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-lg">
+                <div class="text-xs font-bold text-slate-500 mb-2">回答：</div>
+                <div id="smart-answer-text" class="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap"></div>
+            </div>
+             <div class="p-3 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-lg">
+                <div class="text-xs font-bold text-slate-500 mb-2">SQL：</div>
+                <pre id="smart-sql-text" class="text-xs font-mono text-slate-600 dark:text-slate-400 overflow-x-auto"></pre>
+            </div>
+            <div class="overflow-auto max-h-[400px] border border-slate-100 dark:border-slate-800 rounded-lg">
+                 <table class="min-w-full text-[11px] border-separate border-spacing-0">
+                    <thead id="smart-table-head" class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm sticky top-0 z-10"></thead>
+                    <tbody id="smart-table-body" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+                 </table>
+            </div>
+        </div>
+      </section>
+
+    </section>
+
+    <section id="view-logs" class="space-y-2 hidden">
+      <section class="glass-card p-3">
+        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          回测运行日志
+        </h3>
+        <pre id="run-logs" class="text-[10px] bg-slate-50/50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 rounded-lg p-3 font-mono overflow-auto max-h-[600px] leading-relaxed text-slate-700 dark:text-slate-400"></pre>
+      </section>
+    </section>
+
+    <section id="view-data" class="space-y-2 hidden">
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+            数据安全与同步
+          </h3>
+          <div class="flex items-center gap-2">
+            <button id="backup-all" class="btn-primary px-4 py-1.5" onclick="backupAllData()">备份全部数据 (JSON)</button>
+            <button id="restore-all" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30 px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200" onclick="document.getElementById('restore-file').click()">恢复备份</button>
+            <input type="file" id="restore-file" class="hidden" accept=".json" onchange="restoreAllData(this)" />
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">后端数据同步</h4>
+            <button id="data-sync-btn" class="btn-primary px-4 py-1.5" onclick="runDataSyncOnce()">同步一次</button>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">输出目录（CSV保存位置）</label>
+              <input id="data-out-dir" class="form-input w-full" value="data" />
+            </div>
+            <div class="md:col-span-4">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">日期区间</label>
+              <div class="flex items-center gap-2">
+                <input id="data-beg" class="form-input w-full" value="20150101" />
+                <span class="text-slate-400">至</span>
+                <input id="data-end" class="form-input w-full" value="20500101" />
+              </div>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">复权</label>
+              <select id="data-adjust" class="form-input w-full">
+                <option value="qfq" selected>qfq</option>
+                <option value="hfq">hfq</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">市场（可选）</label>
+              <select id="data-market" class="form-input w-full">
+                <option value="" selected>(自动)</option>
+                <option value="sh">sh</option>
+                <option value="sz">sz</option>
+                <option value="bj">bj</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-8">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="flex items-center gap-2">
+                  <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">股票代码（可选）</label>
+                  <div class="flex gap-1">
+                    <button class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[9px] rounded transition-colors" onclick="fetchConstituents('HS300')">沪深300</button>
+                    <button class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[9px] rounded transition-colors" onclick="fetchConstituents('ZZ500')">中证500</button>
+                  </div>
+                </div>
+                <label class="flex items-center gap-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                  <input type="checkbox" id="data-full" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 transition-all duration-200" />
+                  <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">全量 (从东方财富拉取A股列表)</span>
+                </label>
+              </div>
+              <textarea id="data-symbols" class="form-input w-full h-20 resize-none" placeholder="例如：000001.SZ, 600519.SH（多只用逗号/空格/换行）"></textarea>
+            </div>
+            <div class="md:col-span-4 flex flex-col justify-between">
+              <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">尾部刷新天数</label>
+                    <input id="data-tail-days" type="number" class="form-input w-full" value="5" />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">并发</label>
+                    <input id="data-max-conc" type="number" class="form-input w-full" value="8" />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">同步状态</label>
+                  <div id="data-sync-status" class="px-3 py-2 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-lg text-xs text-blue-600 dark:text-blue-400 font-bold">待开始</div>
+                </div>
+              </div>
+              <button id="data-sync-stop-btn" class="btn-secondary w-full py-2" onclick="stopDataSyncStream()">停止读取（不中断后台请求）</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            定时更新
+          </h3>
+          <div class="flex items-center gap-2">
+            <button class="btn-primary px-4 py-1.5" onclick="startDataSchedule()">启动任务</button>
+            <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30 px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200" onclick="stopDataSchedule()">停止任务</button>
+            <button class="btn-secondary px-4 py-1.5" onclick="refreshDataScheduleStatus()">刷新状态</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-3 space-y-3">
+            <div>
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">轮询间隔 (分钟)</label>
+              <input id="data-interval-min" type="number" class="form-input w-full" value="60" />
+            </div>
+            <div class="space-y-2">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">更新后动作</label>
+              <div class="p-3 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-lg space-y-2">
+                <label class="flex items-center gap-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer group">
+                  <input id="data-post-bt" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 transition-all duration-200" />
+                  <span class="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">自动回测并更新备用池</span>
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="space-y-1">
+                    <span class="text-[10px] text-slate-400 dark:text-slate-500 font-bold">TopN</span>
+                    <input id="data-post-bt-topn" type="number" class="form-input w-full py-1" value="20" />
+                  </div>
+                  <div class="space-y-1">
+                    <span class="text-[10px] text-slate-400 dark:text-slate-500 font-bold">TopK</span>
+                    <input id="data-post-bt-topk" type="number" class="form-input w-full py-1" value="200" />
+                  </div>
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-slate-400 dark:text-slate-500 font-bold">对比指数</span>
+                  <input id="data-post-bt-index" class="form-input w-full py-1" value="000300.SH" />
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="md:col-span-9 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">实时任务进度</label>
+              <div id="data-sched-progress" class="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase"></div>
+            </div>
+            <pre id="data-sched-status" class="text-[10px] bg-slate-900/5 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-lg p-3 font-mono overflow-auto h-[220px] leading-relaxed text-slate-700 dark:text-slate-300"></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.783.57-1.838-.197-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+            备用明星池
+          </h3>
+          <div class="flex items-center gap-2">
+            <button id="data-backup-pool-view" class="btn-secondary px-4 py-1.5">查看备用池</button>
+            <button id="data-backup-pool-import" class="btn-primary px-4 py-1.5 hidden">导入明星池</button>
+          </div>
+        </div>
+        <div id="data-backup-pool-hint" class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight mb-2"></div>
+        <div id="data-backup-pool-table" class="overflow-auto max-h-[400px] hidden border border-slate-100 dark:border-slate-800 rounded-xl">
+          <table class="min-w-full text-[11px] border-separate border-spacing-0">
+            <thead>
+              <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">股票代码</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">评分</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">稳健评分</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">交易数</th>
+                <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">更新时间</th>
+              </tr>
+            </thead>
+            <tbody id="data-backup-pool-body" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            数据质量体检
+          </h3>
+          <div class="flex items-center gap-2">
+            <button class="btn-primary px-4 py-1.5" onclick="runDataQualityCheck()">开始体检</button>
+            <button class="btn-secondary px-4 py-1.5" onclick="refetchBadFromQuality()">重拉异常股票</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mb-3">
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票文件目录地址</label>
+            <input id="dq-data-dir" class="form-input" value="data" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码（可选）</label>
+            <input id="dq-symbols" class="form-input" placeholder="为空=全量扫描目录" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">断档阈值天数</label>
+            <input id="dq-max-gap" type="number" class="form-input" value="15" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">跳空阈值</label>
+            <input id="dq-gap-pct" type="number" step="0.01" class="form-input" value="0.2" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">最小行数</label>
+            <input id="dq-min-rows" type="number" class="form-input" value="60" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">过旧阈值天数</label>
+            <input id="dq-stale" type="number" class="form-input" value="10" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">上市不足天数</label>
+            <input id="dq-min-list-days" type="number" class="form-input" value="1460" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">最低股价</label>
+            <input id="dq-min-price" type="number" step="0.1" class="form-input" value="3.0" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">日均成交额</label>
+            <input id="dq-min-avg-amount" type="number" class="form-input" value="10000000" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">检查ST</label>
+            <label class="flex items-center gap-2 cursor-pointer group mt-2">
+              <input id="dq-check-st" type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked />
+              <span class="text-sm text-slate-700 dark:text-slate-300">排除ST股票</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">致命项（计入 bad）</label>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-[11px] text-slate-700 dark:text-slate-300">
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-parse" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">解析失败</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-empty" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">空数据</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-minrows" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">数据量不足</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-dup" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">重复日期</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-stale" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">数据过旧</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-nonpos" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">非正价格</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-ohlc" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">OHLC异常</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-gap" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" /><span class="group-hover:text-blue-600 transition-colors">断档</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-gapopen" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" /><span class="group-hover:text-blue-600 transition-colors">异常跳空</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-listdays" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">上市时间不足4年</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-st" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">ST/*ST股票</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-lowprice" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">小于3元低价股</span></label>
+            <label class="flex items-center gap-2 cursor-pointer group"><input id="dq-fatal-lowamt" type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800" checked /><span class="group-hover:text-blue-600 transition-colors">日均成交额<1000万</span></label>
+          </div>
+        </div>
+
+        <div class="mb-3 space-y-2">
+          <div class="text-sm font-semibold flex items-center justify-between">
+            <span id="dq-summary" class="text-slate-600 dark:text-slate-400">未运行</span>
+            <span id="dq-progress-text" class="text-blue-600 dark:text-blue-400"></span>
+          </div>
+          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="dq-progress-bar" class="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl">
+          <div class="overflow-auto max-h-[400px]">
+            <table class="min-w-full text-[11px] border-separate border-spacing-0">
+              <thead>
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">股票</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">行数</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">最后日期</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">异常数</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">异常详情</th>
+                </tr>
+              </thead>
+              <tbody id="dq-results" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="view-tasks" class="space-y-2 hidden">
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+            </svg>
+            任务中心
+          </h3>
+          <div class="flex items-center gap-2">
+            <button id="task-refresh" class="btn-secondary px-4 py-1.5 text-xs">刷新</button>
+            <button id="task-archive" class="btn-secondary px-4 py-1.5 text-xs">归档</button>
+            <button id="task-export" class="btn-secondary px-4 py-1.5 text-xs">导出</button>
+            <button id="task-clear" class="btn-secondary border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/30 px-4 py-1.5 text-xs">清空</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <!-- 任务列表 -->
+          <div class="md:col-span-2 glass-card border-slate-100/50 dark:border-slate-800/50 overflow-hidden flex flex-col min-h-[400px]">
+            <div class="overflow-auto flex-1">
+              <table class="min-w-full text-[11px] border-separate border-spacing-0">
+                <thead>
+                  <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">
+                    <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">时间</th>
+                    <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">状态</th>
+                    <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">最近N天</th>
+                    <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">进度</th>
+                    <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">信号</th>
+                    <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="task-list" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 任务详情 -->
+          <div class="glass-card border-slate-100/50 dark:border-slate-800/50 overflow-hidden flex flex-col">
+            <div class="px-4 py-2 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div class="text-xs font-bold text-slate-400 dark:text-slate-500" id="task-detail-title">任务详情</div>
+              <button id="task-rerun" class="btn-primary px-3 py-1 text-[10px]">复跑</button>
+            </div>
+            <div class="p-3 space-y-3 flex-1 overflow-auto">
+              <pre id="task-detail" class="text-[10px] bg-slate-50/50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 rounded-lg p-3 overflow-auto max-h-[150px] font-mono text-slate-600 dark:text-slate-400"></pre>
+
+              
+              <!-- 信号结果 -->
+              <div id="task-signal-block" class="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
+                <div class="px-3 py-2 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight">信号结果</div>
+                  <button id="task-copy-results" class="btn-secondary px-2 py-1 text-[10px]">复制JSON</button>
+                </div>
+                <div class="overflow-auto max-h-[250px]">
+                  <table class="min-w-full text-[10px] border-separate border-spacing-0">
+                    <thead class="sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-sm">
+                      <tr class="text-left">
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">股票</th>
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">日期</th>
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 text-center">状态</th>
+                      </tr>
+                    </thead>
+                    <tbody id="task-results" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- 回测结果 -->
+              <div id="task-backtest-block" class="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden hidden">
+                <div class="px-3 py-2 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight">回测结果</div>
+                  <button id="task-copy-backtest" class="btn-secondary px-2 py-1 text-[10px]">复制JSON</button>
+                </div>
+                <div class="overflow-auto max-h-[250px]">
+                  <table class="min-w-full text-[10px] border-separate border-spacing-0">
+                    <thead class="sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-sm">
+                      <tr class="text-left">
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">股票</th>
+                        <th class="px-3 py-2 text-right text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">收益</th>
+                        <th class="px-3 py-2 text-right text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">评分</th>
+                      </tr>
+                    </thead>
+                    <tbody id="task-backtest-results" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- 错误结果 -->
+              <div id="task-errors-block" class="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
+                <div class="px-3 py-2 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tight">错误结果</div>
+                  <button id="task-copy-errors" class="btn-secondary px-2 py-1 text-[10px]">复制JSON</button>
+                </div>
+                <div class="overflow-auto max-h-[150px]">
+                  <table class="min-w-full text-[10px] border-separate border-spacing-0">
+                    <thead class="sticky top-0 z-10 bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-sm">
+                      <tr class="text-left">
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">股票</th>
+                        <th class="px-3 py-2 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">错误详情</th>
+                      </tr>
+                    </thead>
+                    <tbody id="task-errors" class="divide-y divide-slate-50 dark:divide-slate-800/50"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="view-debug" class="space-y-2 hidden">
+      <section class="glass-card p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">策略调试分析器</h3>
+          <div class="flex items-center gap-3">
+            <button id="debug-run-btn" class="btn-primary px-6 py-2 rounded-lg text-sm font-semibold" onclick="runDebugAnalyze()">开始分析</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">股票代码</label>
+            <input id="dbg-symbol" class="form-input w-full" placeholder="例如：600519.SH" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">数据目录</label>
+            <input id="dbg-data-dir" class="form-input w-full" placeholder="例如：d:\\data\\stocks\\" />
+          </div>
+          <div class="md:col-span-1">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">开始日期</label>
+            <input id="dbg-beg" class="form-input w-full" placeholder="例如：20231001" />
+          </div>
+          <div class="md:col-span-1">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">结束日期</label>
+            <input id="dbg-end" class="form-input w-full" placeholder="例如：20240131" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">指数数据文件(可选)</label>
+            <input id="dbg-index-data" class="form-input w-full" placeholder="例如：d:\\data\\000300.SH.csv" />
+          </div>
+          <div class="md:col-span-1">
+            <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">指数代码</label>
+            <input id="dbg-index-symbol" class="form-input w-full" value="000300.SH" />
+          </div>
+          <div class="md:col-span-1 flex items-end">
+            <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 cursor-pointer">
+              <input type="checkbox" id="dbg-show-trace" class="form-checkbox h-3.5 w-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+              <span>显示中间计算过程</span>
+            </label>
+          </div>
+        </div>
+      </section>
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+        <div class="lg:col-span-8 space-y-2">
+          <section class="glass-card p-2">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2">策略概览面板</h3>
+            <div id="debug-overview" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
+              <div><canvas id="debug-equity-chart" height="160"></canvas></div>
+              <div><canvas id="debug-monthly-chart" height="160"></canvas></div>
+            </div>
+          </section>
+
+          <section class="glass-card p-3">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">交易列表</h3>
+              <div class="flex items-center gap-3">
+                <select id="dbg-filter-type" class="form-input">
+                  <option value="">全部</option>
+                  <option value="win">盈利</option>
+                  <option value="loss">亏损</option>
+                </select>
+                <select id="dbg-filter-hold" class="form-input">
+                  <option value="">持仓不限</option>
+                  <option value="lt5">少于5天</option>
+                  <option value="lt10">少于10天</option>
+                  <option value="gte10">至少10天</option>
+                </select>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-[11px] border-separate border-spacing-0">
+                <thead>
+                  <tr>
+                    <th class="px-3 py-2 text-left">选择</th>
+                    <th class="px-3 py-2 text-left">序号</th>
+                    <th class="px-3 py-2 text-left">入场日期</th>
+                    <th class="px-3 py-2 text-left">出场日期</th>
+                    <th class="px-3 py-2 text-left">入场价</th>
+                    <th class="px-3 py-2 text-left">出场价</th>
+                    <th class="px-3 py-2 text-left">收益率</th>
+                    <th class="px-3 py-2 text-left">R倍数</th>
+                    <th class="px-3 py-2 text-left">持仓天数</th>
+                    <th class="px-3 py-2 text-left">出场原因</th>
+                    <th class="px-3 py-2 text-left">特征详情</th>
+                  </tr>
+                </thead>
+                <tbody id="debug-trades" class="divide-y divide-slate-100 dark:divide-slate-800/50"></tbody>
+              </table>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <button id="dbg-export-current" class="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all text-xs font-bold shadow-sm">导出当前显示交易</button>
+              <button id="dbg-export-all" class="px-3 py-1 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-bold shadow-sm">导出所有历史交易</button>
+              <button id="dbg-export-range" class="px-3 py-1 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-xs font-bold shadow-sm">选择时间范围导出</button>
+              <button id="dbg-reanalyze-selected" class="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-200 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all text-xs font-bold shadow-sm">重新分析选中交易</button>
+            </div>
+          </section>
+
+          <section class="glass-card p-3">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2">单笔交易分析</h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div><canvas id="debug-trade-kchart" height="180"></canvas></div>
+              <div>
+                <div class="bg-slate-50/50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 rounded-lg p-3 overflow-auto max-h-[240px] leading-relaxed text-slate-700 dark:text-slate-400 mb-2">
+                  <div class="flex items-center gap-2 mb-2">
+                    <button id="dbg-feature-tab-core-btn" class="dbg-feature-tab-btn px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300" data-tab="core">核心参数</button>
+                    <button id="dbg-feature-tab-channel-btn" class="dbg-feature-tab-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200" data-tab="channel">通道参数</button>
+                    <button id="dbg-feature-tab-decision-btn" class="dbg-feature-tab-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200" data-tab="decision">完整决策链</button>
+                  </div>
+                  <div id="dbg-feature-tab-core" class="dbg-feature-tab-content text-[11px] whitespace-pre-wrap"></div>
+                  <div id="dbg-feature-tab-channel" class="dbg-feature-tab-content text-[11px] whitespace-pre-wrap hidden"></div>
+                  <div id="dbg-feature-tab-decision" class="dbg-feature-tab-content text-[11px] whitespace-pre-wrap hidden">
+                    <div id="dbg-decision-chain" class="w-full overflow-x-auto"></div>
+                  </div>
+                </div>
+                <div id="debug-trade-trace-wrap">
+                  <table class="min-w-full text-[11px] border-separate border-spacing-0">
+                    <thead>
+                      <tr>
+                        <th class="px-3 py-2 text-left">决策步骤</th>
+                        <th class="px-3 py-2 text-left">检查条件</th>
+                        <th class="px-3 py-2 text-left">阈值要求</th>
+                        <th class="px-3 py-2 text-left">实际值</th>
+                        <th class="px-3 py-2 text-left">是否通过</th>
+                        <th class="px-3 py-2 text-left">失败原因</th>
+                      </tr>
+                    </thead>
+                    <tbody id="debug-trace" class="divide-y divide-slate-100 dark:divide-slate-800/50"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="lg:col-span-4">
+          <section id="debug-param-panel" class="glass-card overflow-hidden flex flex-col lg:sticky lg:top-4">
+            <div class="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" />
+                </svg>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">生效参数</h3>
+              </div>
+              <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500">点击参数可跳转</span>
+            </div>
+            <div class="p-3 space-y-3">
+              <div id="debug-param-panel-summary" class="text-[11px] text-slate-600 dark:text-slate-300"></div>
+              <div id="debug-param-panel-groups" class="space-y-3"></div>
+              <div class="text-[10px] text-slate-400 dark:text-slate-500">
+                标记：<span class="inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">最近修改</span>
+                <span class="ml-2 inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">默认≠当前</span>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+
+  <!-- Backtest History Modal -->
+  <div id="bt-history-modal" class="fixed inset-0 z-[10000] hidden" role="dialog" aria-modal="true">
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="document.getElementById('bt-history-modal').classList.add('hidden')"></div>
+
+    <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+      <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+        <!-- Modal Panel -->
+        <div class="relative transform overflow-hidden rounded-xl bg-white dark:bg-slate-900 text-left shadow-2xl transition-all sm:my-8 w-full max-w-5xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[85vh]">
+          
+          <!-- Header -->
+          <div class="shrink-0 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-800">
+            <div class="flex items-center gap-4">
+              <h3 class="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                回测历史记录
+              </h3>
+              <button onclick="showBacktestHistory()" class="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all text-xs font-bold shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                刷新列表
+              </button>
+              <span id="bt-history-count" class="px-2 py-0.5 text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full"></span>
+            </div>
+            <button onclick="document.getElementById('bt-history-modal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          <!-- Scrollable Content -->
+          <div class="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-slate-900/50">
+            <table class="min-w-full text-xs border-separate border-spacing-0">
+              <thead>
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">开始时间</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">耗时</th>
+                  <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">总数</th>
+                  <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">成功</th>
+                  <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">失败</th>
+                  <th class="px-3 py-2 text-center font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">操作</th>
+                </tr>
+              </thead>
+              <tbody id="bt-history-list" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+          
+          <!-- Footer -->
+          <div class="shrink-0 px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex justify-between items-center">
+            <span class="text-[10px] text-slate-400">显示最近 50 条回测记录</span>
+            <button onclick="document.getElementById('bt-history-modal').classList.add('hidden')" 
+              class="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-6 py-1.5 rounded-lg font-bold transition-all shadow-sm text-xs">
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dbg-rejection-modal" class="fixed inset-0 z-[10000] hidden" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="document.getElementById('dbg-rejection-modal').classList.add('hidden')"></div>
+    <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+      <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+        <div class="relative transform overflow-hidden rounded-xl bg-white dark:bg-slate-900 text-left shadow-2xl transition-all sm:my-8 w-full max-w-5xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[85vh]">
+          <div class="shrink-0 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+              <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">过滤拒绝详情</h3>
+              <span id="dbg-rejection-count" class="px-2 py-0.5 text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="exportRejectionDetailsCSV()" class="btn-secondary px-3 py-1.5 text-[10px]">导出CSV</button>
+              <button onclick="document.getElementById('dbg-rejection-modal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="pt-summary"></div>
+          <div class="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-slate-900/50">
+            <table class="min-w-full text-xs border-separate border-spacing-0">
+              <thead>
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">日期</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">过滤器类型</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">检查条件</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">实际值</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">阈值要求</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">拒绝原因</th>
+                </tr>
+              </thead>
+              <tbody id="dbg-rejection-details" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+          <div class="shrink-0 px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex justify-between items-center">
+            <span class="text-[10px] text-slate-400">仅展示当日最终未触发入场信号的第一处失败</span>
+            <button onclick="document.getElementById('dbg-rejection-modal').classList.add('hidden')" class="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-6 py-1.5 rounded-lg font-bold transition-all shadow-sm text-xs">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="param-help-modal" class="fixed inset-0 z-[10000] hidden" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="document.getElementById('param-help-modal').classList.add('hidden')"></div>
+    <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+      <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+        <div class="relative transform overflow-hidden rounded-xl bg-white dark:bg-slate-900 text-left shadow-2xl transition-all sm:my-8 w-full max-w-3xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[85vh]">
+          <div class="shrink-0 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-800">
+            <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">参数详细说明</h3>
+            <button onclick="document.getElementById('param-help-modal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-slate-900/50">
+            <div id="param-help-modal-content" class="p-4 text-[13px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"></div>
+          </div>
+          <div class="shrink-0 px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex justify-end items-center">
+            <button onclick="document.getElementById('param-help-modal').classList.add('hidden')" class="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-6 py-1.5 rounded-lg font-bold transition-all shadow-sm text-xs">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pt-modal" class="fixed inset-0 z-[10000] hidden" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onclick="document.getElementById('pt-modal').classList.add('hidden')"></div>
+    <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+      <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+        <div class="relative transform overflow-hidden rounded-xl bg-white dark:bg-slate-900 text-left shadow-2xl transition-all sm:my-8 w-full max-w-5xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[85vh]">
+          <div class="shrink-0 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+              <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">批量参数测试结果</h3>
+              <span id="pt-count" class="px-2 py-0.5 text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="exportParamTestExcel()" class="btn-secondary px-3 py-1.5 text-[10px]">导出Excel</button>
+              <button onclick="document.getElementById('pt-modal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-slate-900/50">
+            <table class="min-w-full text-xs border-separate border-spacing-0">
+              <thead>
+                <tr class="bg-slate-50/90 dark:bg-slate-800/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="symbol">股票</th>
+                  <th class="px-3 py-2 text-left font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="combo_label">组合</th>
+                  <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="trades">交易数</th>
+                  <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="win_rate">胜率</th>
+                  <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="total_return">收益</th>
+                  <th class="px-3 py-2 text-right font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-blue-600 transition-colors" data-sort-key="max_drawdown">回撤</th>
+                </tr>
+              </thead>
+              <tbody id="pt-results" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+          <div class="shrink-0 px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex justify-between items-center">
+            <span id="pt-modal-status" class="text-[10px] text-slate-400">-</span>
+            <button onclick="document.getElementById('pt-modal').classList.add('hidden')" class="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-6 py-1.5 rounded-lg font-bold transition-all shadow-sm text-xs">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Global error handler to catch syntax errors or loading issues
+    window.onerror = function(msg, url, line, col, error) {
+      var h = document.getElementById("app-hint");
+      if (h) h.textContent = "Global Error: " + msg;
+      console.error("Global Error:", msg, url, line, error);
+    };
+  </script>
+  <!-- Chart.js omitted to avoid external CDN blocking; charts will be skipped if unavailable -->
+  <script src="/static/app.js?v=1.0.19"></script>
+  <script>
+    async function fetchConstituents(indexName) {
+        const btn = event.target;
+        const originalText = btn.innerText;
+        btn.innerText = "加载中...";
+        btn.disabled = true;
+
+        try {
+            const resp = await fetch("/api/data/fetch_constituents", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ index_name: indexName })
+            });
+            
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error: " + (err.detail || "Unknown error"));
+                return;
+            }
+
+            const data = await resp.json();
+            const items = data.items || [];
+            if (items.length === 0) {
+                alert("未找到成分股");
+                return;
+            }
+
+            const symbols = items.map(x => x.symbol).join(", ");
+            const textarea = document.getElementById("data-symbols");
+            if (textarea) {
+                textarea.value = symbols;
+                textarea.dispatchEvent(new Event('input'));
+            }
+            
+            const fullCheck = document.getElementById("data-full");
+            if (fullCheck && fullCheck.checked) {
+                fullCheck.checked = false;
+            }
+
+            alert(`已加载 ${items.length} 只成分股`);
+        } catch (e) {
+            alert("Fetch error: " + e);
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+  </script>
+</body>
+</html>
