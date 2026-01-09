@@ -160,7 +160,10 @@ class BatchTaskManager:
                 return
             if st.status != "running":
                 return
-            st.done += 1
+            if st.total > 0:
+                st.done = min(st.done + 1, st.total)
+            else:
+                st.done += 1
             st.updated_at_ts = time.time()
             if res is not None:
                 st.aggregation.update_from_result(res)

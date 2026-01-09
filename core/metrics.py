@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, is_dataclass
 from enum import Enum
 from math import sqrt
 from typing import Any, Optional
@@ -504,10 +504,15 @@ class Metrics:
 
     def to_dict(self) -> dict[str, Any]:
         """将Metrics转换为字典"""
-        return {
-            key: value for key, value in self.__dict__.items()
-            if not key.startswith('_')
-        }
+        out: dict[str, Any] = {}
+        for key, value in self.__dict__.items():
+            if key.startswith("_"):
+                continue
+            if is_dataclass(value):
+                out[key] = asdict(value)
+            else:
+                out[key] = value
+        return out
 
     def summary(self) -> str:
         """生成绩效摘要"""
