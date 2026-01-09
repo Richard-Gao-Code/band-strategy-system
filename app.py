@@ -3,6 +3,7 @@ import asyncio
 import csv
 import datetime
 import json
+import logging
 import math
 import os
 import re
@@ -54,12 +55,15 @@ def _json_dumps(x: Any) -> str:
 app_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(app_dir))
 
-from core.scanner_runner import scan_channel_hf_for_symbol_path, backtest_channel_hf_for_symbol_path
+from core.scanner_runner import scan_channel_hf_for_symbol_path, backtest_channel_hf_for_symbol_path, BatchTaskManager
 from core.debug_runner import debug_analyze_channel_hf, reanalyze_channel_hf_trade_features
 from core.batch_runner import resolve_file_path, resolve_any_path
 from core.data import fetch_all_a_share_symbols, inspect_csv_quality, inspect_dir_quality, sync_incremental_data, fetch_block_constituents, find_block_code
 from core.smart_analyze import SmartAnalyzer
 from core.selector import run_selection
+
+logger = logging.getLogger(__name__)
+batch_task_manager = BatchTaskManager()
 
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 
@@ -993,26 +997,47 @@ async def api_param_batch_test(req: ParamBatchReq):
             done = 0
             symbols_local = list(symbol_paths.keys())
             total = len(symbols_local) * len(param_sets)
-            yield _json_dumps({"type": "start", "total": total, "combos": len(param_sets), "symbols": len(symbols_local), "started_at": started_at}) + "\n"
+            st = batch_task_manager.create_task(total=total)
+            task_id = st.task_id
 
-            pool = executor if len(symbols_local) > 1 else None
+            try:
+                # 状态机：running -> completed / cancelled（cancelled 可随时由 cancel 接口触发）
+                logger.info(
+                    "Batch test started: task_id=%s total=%s combos=%s symbols=%s",
+                    task_id,
+                    total,
+                    len(param_sets),
+                    len(symbols_local),
+                )
+                yield _json_dumps({"type": "start", "task_id": task_id, "total": total, "combos": len(param_sets), "symbols": len(symbols_local), "started_at": started_at}) + "\n"
 
-            for combo_idx, combo in enumerate(param_sets):
-                combo_name = combo.get("__name__")
-                combo_label = str(combo_name).strip() if combo_name else f"组合{combo_idx + 1}"
-                merged_cfg = dict(cfg_base)
-                for k, v in combo.items():
-                    if str(k).strip() == "__name__":
-                        continue
-                    merged_cfg[str(k)] = v
+                pool = executor if len(symbols_local) > 1 else None
+                max_in_flight = max(1, min(16, int(executor_max_workers or 4)))
 
-                yield _json_dumps({"type": "combo_start", "combo_idx": combo_idx + 1, "combo_total": len(param_sets), "combo_label": combo_label}) + "\n"
+                for combo_idx, combo in enumerate(param_sets):
+                    if batch_task_manager.is_cancel_requested(task_id):
+                        break
 
-                tasks = []
-                for sym in symbols_local:
-                    path = symbol_paths[sym]
-                    tasks.append(
-                        loop.run_in_executor(
+                    combo_name = combo.get("__name__")
+                    combo_label = str(combo_name).strip() if combo_name else f"组合{combo_idx + 1}"
+                    merged_cfg = dict(cfg_base)
+                    for k, v in combo.items():
+                        if str(k).strip() == "__name__":
+                            continue
+                        merged_cfg[str(k)] = v
+
+                    yield _json_dumps({"type": "combo_start", "combo_idx": combo_idx + 1, "combo_total": len(param_sets), "combo_label": combo_label}) + "\n"
+
+                    symbols_iter = iter(symbols_local)
+                    pending: set[asyncio.Future] = set()
+
+                    def _submit_next() -> bool:
+                        try:
+                            sym = next(symbols_iter)
+                        except StopIteration:
+                            return False
+                        path = symbol_paths[sym]
+                        fut = loop.run_in_executor(
                             pool,
                             backtest_channel_hf_for_symbol_path,
                             sym,
@@ -1020,42 +1045,107 @@ async def api_param_batch_test(req: ParamBatchReq):
                             index_path,
                             merged_cfg,
                         )
-                    )
 
-                pending = set(tasks)
-                while pending:
-                    done_set, _ = await asyncio.wait(pending, timeout=2.0, return_when=asyncio.FIRST_COMPLETED)
-                    if not done_set:
-                        prog = f"{done}/{total}"
-                        yield _json_dumps({"type": "heartbeat", "progress": prog, "total": total, "done": done}) + "\n"
-                        continue
+                        def _swallow_future_exc(f: asyncio.Future) -> None:
+                            try:
+                                if f.cancelled():
+                                    return
+                                _ = f.exception()
+                            except Exception:
+                                return
 
-                    for fut in done_set:
-                        pending.remove(fut)
-                        done += 1
-                        prog = f"{done}/{total}"
-                        try:
-                            res = await fut
-                            payload = {
-                                "type": "result",
-                                "status": "success",
-                                "data": res,
-                                "progress": prog,
-                                "combo_idx": combo_idx + 1,
-                                "combo_total": len(param_sets),
-                                "combo_label": combo_label,
-                                "combo": combo,
-                            }
-                            yield _json_dumps(payload) + "\n"
-                        except Exception as e:
-                            yield _json_dumps({"type": "error", "message": str(e), "progress": prog, "combo_label": combo_label}) + "\n"
+                        fut.add_done_callback(_swallow_future_exc)
+                        pending.add(fut)
+                        return True
 
-            ended_at = datetime.datetime.now().isoformat()
-            yield _json_dumps({"type": "end", "ended_at": ended_at, "progress": f"{done}/{total}"}) + "\n"
+                    for _ in range(max_in_flight):
+                        if batch_task_manager.is_cancel_requested(task_id):
+                            break
+                        if not _submit_next():
+                            break
+
+                    while pending:
+                        if batch_task_manager.is_cancel_requested(task_id):
+                            break
+
+                        done_set, _ = await asyncio.wait(pending, timeout=2.0, return_when=asyncio.FIRST_COMPLETED)
+                        if not done_set:
+                            prog = f"{done}/{total}"
+                            yield _json_dumps({"type": "heartbeat", "progress": prog, "total": total, "done": done}) + "\n"
+                            continue
+
+                        for fut in done_set:
+                            pending.remove(fut)
+                            done += 1
+                            prog = f"{done}/{total}"
+                            try:
+                                res = await fut
+                                batch_task_manager.update_progress(task_id, res=res if isinstance(res, dict) else None)
+                                payload = {
+                                    "type": "result",
+                                    "status": "success",
+                                    "data": res,
+                                    "progress": prog,
+                                    "combo_idx": combo_idx + 1,
+                                    "combo_total": len(param_sets),
+                                    "combo_label": combo_label,
+                                    "combo": combo,
+                                }
+                                yield _json_dumps(payload) + "\n"
+                            except Exception as e:
+                                batch_task_manager.update_progress(task_id, res={"error": str(e)})
+                                yield _json_dumps({"type": "error", "message": str(e), "progress": prog, "combo_label": combo_label}) + "\n"
+
+                            if not batch_task_manager.is_cancel_requested(task_id):
+                                _submit_next()
+
+                ended_at = datetime.datetime.now().isoformat()
+                if not batch_task_manager.is_cancel_requested(task_id):
+                    batch_task_manager.mark_completed(task_id)
+                    logger.info("Batch test completed: task_id=%s progress=%s/%s", task_id, done, total)
+                    yield _json_dumps({"type": "end", "task_id": task_id, "ended_at": ended_at, "progress": f"{done}/{total}", "status": "completed"}) + "\n"
+                else:
+                    logger.info("Batch test cancelled: task_id=%s progress=%s/%s", task_id, done, total)
+                    yield _json_dumps({"type": "end", "task_id": task_id, "ended_at": ended_at, "progress": f"{done}/{total}", "status": "cancelled"}) + "\n"
+            except asyncio.CancelledError:
+                try:
+                    batch_task_manager.request_cancel(task_id)
+                except Exception:
+                    pass
+                logger.info("Batch test client disconnected: task_id=%s", task_id)
+                raise
 
         return StreamingResponse(result_generator(), media_type="application/x-ndjson")
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatchCancelReq(BaseModel):
+    task_id: str
+
+
+@app.post("/batch_test/cancel")
+async def batch_test_cancel(req: BatchCancelReq):
+    # 状态机：running -> cancelled
+    try:
+        batch_task_manager.request_cancel(str(req.task_id).strip())
+        return {"status": "cancelled"}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="task not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/batch_test/status")
+async def batch_test_status(task_id: str = Query(..., description="批量任务ID")):
+    try:
+        return batch_task_manager.get_status(str(task_id).strip())
+    except KeyError:
+        raise HTTPException(status_code=404, detail="task not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
