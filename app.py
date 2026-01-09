@@ -12,9 +12,9 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import quote
-from typing import Any
+from typing import Any, Optional
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -117,6 +117,7 @@ class RunReq(BaseModel):
     require_index_condition: bool = True
     index_bear_exit: bool = True
     fill_at_close: bool = True
+    detail: bool = True
 
 
 class ParamBatchReq(RunReq):
@@ -1095,7 +1096,7 @@ async def api_backtest_detail(req: RunReq):
             index_path = await loop.run_in_executor(None, resolve_file_path, req.index_data)
 
         cfg = req.dict()
-        cfg["detail"] = True
+        cfg["detail"] = bool(req.detail)
 
         res = await loop.run_in_executor(
             executor,
@@ -1114,6 +1115,42 @@ async def api_backtest_detail(req: RunReq):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backtest/detail")
+async def api_backtest_detail_get(
+    symbol: str = Query(..., description="标的代码"),
+    data_dir: str = Query(..., description="数据目录路径"),
+    config: str = Query(..., description="策略配置的JSON字符串"),
+    beg: Optional[str] = Query(None, description="开始日期，YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="结束日期，YYYY-MM-DD"),
+    detail: bool = Query(True, description="是否返回详情")
+):
+    """
+    获取单标的回测详情 (GET接口，用于前端拒绝分析弹窗)
+    此接口是对现有 POST /api/backtest_detail 的包装。
+    """
+    import json  # 确保导入json模块
+    # 将查询参数组装成 AnalyzeReq 对象
+    # 注意：前端传来的config是JSON字符串，需要解析为字典
+    try:
+        config_dict = json.loads(config)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid config JSON string")
+
+    if not isinstance(config_dict, dict):
+        raise HTTPException(status_code=400, detail="Invalid config JSON string")
+
+    run_req = RunReq(
+        symbol=symbol,
+        data_dir=data_dir,
+        beg=beg,
+        end=end,
+        detail=detail,
+        **config_dict,
+    )
+    # 直接调用现有的 POST 接口处理逻辑
+    return await api_backtest_detail(run_req)
 
 def _resolve_out_dir(out_dir: str) -> Path:
     p = resolve_any_path(out_dir)
