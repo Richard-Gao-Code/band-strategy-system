@@ -63,8 +63,6 @@ class EventBacktestResult:
     validation_data: dict = field(default_factory=dict)
     benchmark_equity_curve: list[EquityPoint] = field(default_factory=list)
     data_anomalies: list[dict] = field(default_factory=list)
-    data_anomalies: list[dict] = field(default_factory=list) # 数据异常记录
-
     # 统计字段
     _cached_summary: str = field(default="", init=False, repr=False)
     _cached_trades_text: str = field(default="", init=False, repr=False)
@@ -223,25 +221,25 @@ class EventBacktestResult:
         """
         转换为字典（用于API返回）
         """
-        # --- 新增：生成 rejections 列表的逻辑 ---
+        # --- 生成 rejections 列表的逻辑 ---
         rejections = []
         for log in self.signal_logs:
-            # 筛选出被拒绝的信号（final_signal == 0）
-            if log.get('final_signal') == 0:
-                date = log.get('date')
-                symbol = log.get('symbol')
-                # 从 trace 中提取所有未通过的检查
-                for trace_item in log.get('trace', []):
-                    if trace_item.get('passed') is False:
-                        rejections.append({
-                            'date': date,
-                            'symbol': symbol,
-                            'step': trace_item.get('step', 'Unknown'),
-                            'check': trace_item.get('check', ''),
-                            'actual': trace_item.get('actual', ''),
-                            'threshold': trace_item.get('threshold', ''),
-                            'reason': trace_item.get('reason', 'Filter not passed')
-                        })
+            date_val = log.get('date')
+            symbol_val = log.get('symbol')
+            trace = log.get('trace', [])
+            
+            # 遍历trace，找出所有未通过的检查步骤
+            for trace_item in trace:
+                if trace_item.get('passed') is False:
+                    rejections.append({
+                        'date': date_val,
+                        'symbol': symbol_val,
+                        'step': trace_item.get('step', 'Unknown'),
+                        'check': trace_item.get('check', ''),
+                        'actual': trace_item.get('actual', ''),
+                        'threshold': trace_item.get('threshold', ''),
+                        'reason': trace_item.get('reason', 'Filter not passed')
+                    })
         # --- 新增逻辑结束 ---
 
         return {

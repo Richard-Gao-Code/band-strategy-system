@@ -1098,7 +1098,7 @@ async def api_backtest_detail(req: RunReq):
         cfg = req.dict()
         cfg["detail"] = bool(req.detail)
 
-        res = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             executor,
             backtest_channel_hf_for_symbol_path,
             target_symbol,
@@ -1107,10 +1107,27 @@ async def api_backtest_detail(req: RunReq):
             cfg,
         )
 
-        if isinstance(res, dict) and res.get("error"):
-            raise HTTPException(status_code=400, detail=str(res.get("error")))
+        if isinstance(result, dict) and result.get("error"):
+            raise HTTPException(status_code=400, detail=str(result.get("error")))
 
-        return res
+        # 确保结果是 EventBacktestResult 对象，然后调用 to_dict()
+        from core.event_engine import EventBacktestResult
+        if isinstance(result, EventBacktestResult):
+            result_dict = result.to_dict()
+        else:
+            # 如果已经是字典，直接使用
+            result_dict = result
+
+        # 添加必要的元数据
+        result_dict.update({
+            "symbol": target_symbol,
+            "data_dir": str(base_dir),
+            "beg": req.beg,
+            "end": req.end,
+        })
+
+        return result_dict
+    
     except HTTPException:
         raise
     except Exception as e:
