@@ -89,8 +89,11 @@ class BatchTaskState:
 
 class BatchTaskManager:
     def __init__(self, *, max_tasks: int = 50, ttl_seconds: int = 3600) -> None:
-        self._lock = threading.Lock()
+        # 使用可重入锁，避免同线程嵌套调用导致死锁
+        self._lock = threading.RLock()
         self._tasks: dict[str, BatchTaskState] = {}
+        self._results: dict[str, list[dict[str, Any]]] = {}
+        self._aggregation_cache: dict[str, dict[str, Any]] = {}
         self._max_tasks = max(1, int(max_tasks))
         self._ttl_seconds = max(60, int(ttl_seconds))
 
@@ -102,7 +105,11 @@ class BatchTaskManager:
             if len(self._tasks) >= self._max_tasks:
                 oldest = sorted(self._tasks.values(), key=lambda s: s.updated_at_ts)[0]
                 self._tasks.pop(oldest.task_id, None)
+                self._results.pop(oldest.task_id, None)
+                self._aggregation_cache.pop(oldest.task_id, None)
             self._tasks[task_id] = state
+            self._results[task_id] = []
+            self._aggregation_cache.pop(task_id, None)
 
         logger.info("Batch task created: task_id=%s total=%s", task_id, state.total)
         return state
@@ -120,8 +127,12 @@ class BatchTaskManager:
             st.status = "cancelled"
             st.ended_at = datetime.now().isoformat()
             st.updated_at_ts = time.time()
+            self._aggregation_cache.pop(task_id, None)
 
         logger.info("Batch task cancelled: task_id=%s done=%s total=%s", task_id, st.done, st.total)
+
+    def cancel_task(self, task_id: str) -> None:
+        self.request_cancel(task_id)
 
     def is_cancel_requested(self, task_id: str) -> bool:
         with self._lock:
@@ -138,6 +149,7 @@ class BatchTaskManager:
             st.status = "completed"
             st.ended_at = datetime.now().isoformat()
             st.updated_at_ts = time.time()
+            self._aggregation_cache[task_id] = st.aggregation.to_dict()
 
         logger.info("Batch task completed: task_id=%s done=%s total=%s", task_id, st.done, st.total)
 
@@ -152,6 +164,11 @@ class BatchTaskManager:
             st.updated_at_ts = time.time()
             if res is not None:
                 st.aggregation.update_from_result(res)
+                try:
+                    if isinstance(res, dict):
+                        self._results.setdefault(task_id, []).append(res)
+                except Exception:
+                    pass
 
     def get_status(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -159,10 +176,13 @@ class BatchTaskManager:
             st = self._tasks.get(task_id)
             if st is None:
                 raise KeyError("task not found")
+            aggregation = self._aggregation_cache.get(task_id) if st.status == "completed" else None
+            if aggregation is None:
+                aggregation = st.aggregation.to_dict()
             return {
                 "status": st.status,
                 "progress": f"{st.done}/{st.total}",
-                "aggregation": st.aggregation.to_dict(),
+                "aggregation": aggregation,
             }
 
     def _cleanup_locked(self) -> None:
@@ -173,12 +193,17 @@ class BatchTaskManager:
                 to_del.append(tid)
         for tid in to_del:
             self._tasks.pop(tid, None)
+            self._results.pop(tid, None)
+            self._aggregation_cache.pop(tid, None)
 
     def generate_aggregation(self, task_id: str) -> dict[str, Any]:
         with self._lock:
             st = self._tasks.get(task_id)
             if st is None:
                 raise KeyError("task not found")
+            cached = self._aggregation_cache.get(task_id)
+            if cached is not None:
+                return cached
             return st.aggregation.to_dict()
 
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 from typing import Any, Optional
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1122,15 +1122,25 @@ async def api_param_batch_test(req: ParamBatchReq):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class BatchCancelReq(BaseModel):
-    task_id: str
-
-
 @app.post("/batch_test/cancel")
-async def batch_test_cancel(req: BatchCancelReq):
+async def batch_test_cancel(request: Request):
     # 状态机：running -> cancelled
     try:
-        batch_task_manager.request_cancel(str(req.task_id).strip())
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid request body")
+
+    task_id = None
+    if isinstance(payload, dict):
+        task_id = payload.get("task_id")
+    task_id = str(task_id).strip() if task_id is not None else ""
+    if not task_id:
+        raise HTTPException(status_code=400, detail="missing task_id")
+
+    try:
+        batch_task_manager.request_cancel(task_id)
         return {"status": "cancelled"}
     except KeyError:
         raise HTTPException(status_code=404, detail="task not found")
