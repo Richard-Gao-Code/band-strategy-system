@@ -1,6 +1,4 @@
-"""
-优化器管理器 - 调度和执行优化任务
-"""
+﻿"""优化器管理器 - 调度和执行优化任务"""
 
 from __future__ import annotations
 
@@ -11,6 +9,7 @@ from data.storage.repository import OptimizationRepository
 
 from .base_optimizer import BaseOptimizer
 from .random_optimizer import RandomOptimizer
+from .bayesian_optimizer import BayesianOptimizer
 
 
 class OptimizerManager:
@@ -18,6 +17,7 @@ class OptimizerManager:
 
     OPTIMIZER_CLASSES = {
         "random": RandomOptimizer,
+        "bayesian": BayesianOptimizer,
     }
 
     def __init__(self):
@@ -48,7 +48,7 @@ class OptimizerManager:
             param_space=param_space,
         )
         if optimizer is None:
-            raise RuntimeError("optimizer create failed")
+            raise RuntimeError("优化器创建失败")
 
         result = await optimizer.optimize(n_iterations=n_iterations)
 
@@ -93,7 +93,7 @@ class OptimizerManager:
         """比较不同优化器性能"""
         results: dict[str, Any] = {}
 
-        for optimizer_type in ["random"]:
+        for optimizer_type in ["random", "bayesian"]:
             print(f"\n比较优化器: {optimizer_type}")
             try:
                 results[optimizer_type] = await self.run_optimization(
