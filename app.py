@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 from typing import Any, Optional
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -61,6 +61,10 @@ from core.batch_runner import resolve_file_path, resolve_any_path
 from core.data import fetch_all_a_share_symbols, inspect_csv_quality, inspect_dir_quality, sync_incremental_data, fetch_block_constituents, find_block_code
 from core.smart_analyze import SmartAnalyzer
 from core.selector import run_selection
+
+from config.database import get_db, get_db_dep, init_db
+from data.storage.models import ParamPerformance
+from data.storage.repository import OptimizationRepository, ParamPerformanceRepository
 
 logger = logging.getLogger(__name__)
 batch_task_manager = BatchTaskManager()
@@ -322,6 +326,11 @@ async def _persist_trade_features_from_debug_result(res: dict[str, Any]) -> None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global executor, executor_max_workers, io_executor
+
+    try:
+        init_db()
+    except Exception:
+        pass
 
     io_workers_raw = os.environ.get("CHHF_IO_WORKERS", "")
     try:
@@ -1043,6 +1052,14 @@ async def api_param_batch_test(req: ParamBatchReq):
 
                     yield _json_dumps({"type": "combo_start", "combo_idx": combo_idx + 1, "combo_total": len(param_sets), "combo_label": combo_label}) + "\n"
 
+                    combo_sum_sharpe = 0.0
+                    combo_cnt_sharpe = 0
+                    combo_sum_win = 0.0
+                    combo_cnt_win = 0
+                    combo_max_dd = None
+                    combo_sum_ret = 0.0
+                    combo_cnt_ret = 0
+
                     symbols_iter = iter(symbols_local)
                     pending: set[asyncio.Future] = set()
 
@@ -1095,6 +1112,35 @@ async def api_param_batch_test(req: ParamBatchReq):
                             prog = f"{done}/{total}"
                             try:
                                 res = await fut
+                                if isinstance(res, dict) and not res.get("error"):
+                                    try:
+                                        v = res.get("sharpe_ratio")
+                                        if v is not None:
+                                            combo_sum_sharpe += float(v)
+                                            combo_cnt_sharpe += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        v = res.get("win_rate")
+                                        if v is not None:
+                                            combo_sum_win += float(v)
+                                            combo_cnt_win += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        v = res.get("max_drawdown")
+                                        if v is not None:
+                                            dd = float(v)
+                                            combo_max_dd = dd if combo_max_dd is None else max(combo_max_dd, dd)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        v = res.get("total_return")
+                                        if v is not None:
+                                            combo_sum_ret += float(v)
+                                            combo_cnt_ret += 1
+                                    except Exception:
+                                        pass
                                 res_for_agg = res if isinstance(res, dict) else None
                                 if isinstance(res_for_agg, dict):
                                     res_for_agg = dict(res_for_agg)
@@ -1120,6 +1166,35 @@ async def api_param_batch_test(req: ParamBatchReq):
                             if not batch_task_manager.is_cancel_requested(task_id):
                                 _submit_next()
 
+                    if not batch_task_manager.is_cancel_requested(task_id):
+                        combo_params = {str(k): v for k, v in combo.items() if str(k).strip() != "__name__"}
+                        avg_sharpe = (combo_sum_sharpe / combo_cnt_sharpe) if combo_cnt_sharpe else None
+                        avg_win = (combo_sum_win / combo_cnt_win) if combo_cnt_win else None
+                        avg_ret = (combo_sum_ret / combo_cnt_ret) if combo_cnt_ret else None
+                        performance_data = {
+                            "strategy_name": "channel_hf",
+                            "param_combo": combo_params,
+                            "metrics": {
+                                "combo_label": combo_label,
+                                "avg_total_return": avg_ret,
+                                "avg_win_rate": avg_win,
+                                "avg_sharpe_ratio": avg_sharpe,
+                                "max_drawdown": combo_max_dd,
+                                "samples": combo_cnt_ret,
+                            },
+                            "sample_size": int(combo_cnt_ret),
+                            "sharpe_ratio": avg_sharpe,
+                            "win_rate": avg_win,
+                            "max_drawdown": combo_max_dd,
+                            "stability_score": 0.0,
+                        }
+                        try:
+                            with get_db() as db:
+                                ParamPerformanceRepository.save(db, performance_data)
+                            logger.info("批量任务结果已保存到数据库: task_id=%s combo_label=%s", task_id, combo_label)
+                        except Exception as e:
+                            logger.warning("数据库保存失败: task_id=%s combo_label=%s err=%s", task_id, combo_label, str(e))
+
                 ended_at = datetime.datetime.now().isoformat()
                 if not batch_task_manager.is_cancel_requested(task_id):
                     batch_task_manager.mark_completed(task_id)
@@ -1143,6 +1218,117 @@ async def api_param_batch_test(req: ParamBatchReq):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/performance/best/{strategy_name}")
+async def api_performance_best(strategy_name: str, limit: int = Query(10, ge=1, le=100)):
+    with get_db() as db:
+        results = ParamPerformanceRepository.get_best(db, strategy_name, limit)
+        return {
+            "strategy": strategy_name,
+            "strategy_name": strategy_name,
+            "count": len(results),
+            "results": [
+                {
+                    "param_combo": r.param_combo,
+                    "sharpe_ratio": r.sharpe_ratio,
+                    "win_rate": r.win_rate,
+                    "max_drawdown": r.max_drawdown,
+                    "test_date": r.test_date.isoformat() if r.test_date else None,
+                }
+                for r in results
+            ],
+        }
+
+
+@app.get("/api/performance/history/{strategy_name}")
+async def api_performance_history(
+    strategy_name: str,
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200),
+):
+    cutoff_date = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+    with get_db() as db:
+        results = (
+            db.query(ParamPerformance)
+            .filter(ParamPerformance.strategy_name == strategy_name, ParamPerformance.test_date >= cutoff_date)
+            .order_by(ParamPerformance.test_date.desc())
+            .limit(limit)
+            .all()
+        )
+        return {
+            "strategy": strategy_name,
+            "strategy_name": strategy_name,
+            "days": days,
+            "count": len(results),
+            "results": [
+                {
+                    "param_combo": r.param_combo,
+                    "sharpe_ratio": r.sharpe_ratio,
+                    "win_rate": r.win_rate,
+                    "max_drawdown": r.max_drawdown,
+                    "test_date": r.test_date.isoformat() if r.test_date else None,
+                }
+                for r in results
+            ],
+        }
+
+
+@app.get("/api/performance/stats/{strategy_name}")
+async def api_performance_stats(strategy_name: str):
+    from sqlalchemy import func
+
+    with get_db() as db:
+        stats = (
+            db.query(
+                func.count(ParamPerformance.id).label("total_tests"),
+                func.avg(ParamPerformance.win_rate).label("avg_win_rate"),
+                func.max(ParamPerformance.sharpe_ratio).label("best_sharpe"),
+                func.min(ParamPerformance.max_drawdown).label("min_drawdown"),
+            )
+            .filter(ParamPerformance.strategy_name == strategy_name)
+            .first()
+        )
+
+        total_tests = int(getattr(stats, "total_tests", 0) or 0)
+        avg_win_rate = float(getattr(stats, "avg_win_rate", 0.0) or 0.0)
+        best_sharpe = float(getattr(stats, "best_sharpe", 0.0) or 0.0)
+        min_drawdown = float(getattr(stats, "min_drawdown", 0.0) or 0.0)
+        return {
+            "strategy": strategy_name,
+            "strategy_name": strategy_name,
+            "total_tests": total_tests,
+            "avg_win_rate": round(avg_win_rate, 4),
+            "best_sharpe": round(best_sharpe, 4),
+            "min_drawdown": round(min_drawdown, 4),
+        }
+
+
+@app.post("/api/optimize/run")
+async def api_optimize_run(request: dict, db=Depends(get_db_dep)):
+    try:
+        from core.optimization.optimizer_manager import OptimizerManager
+
+        manager = OptimizerManager()
+        result = await manager.run_optimization(
+            optimizer_type=str(request.get("optimizer_type") or "random"),
+            strategy_name=str(request["strategy_name"]),
+            param_space=request["param_space"],
+            n_iterations=int(request.get("n_iterations", 30)),
+        )
+        return {"success": True, "data": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/optimize/history")
+async def api_optimize_history(
+    strategy_name: str = Query(...),
+    limit: int = Query(20, ge=1, le=100),
+    db=Depends(get_db_dep),
+):
+    records = OptimizationRepository.get_optimization_history(db, strategy_name, int(limit))
+    return {"strategy_name": strategy_name, "count": len(records), "history": [r.to_dict() for r in records]}
 
 
 @app.post("/batch_test/cancel")
