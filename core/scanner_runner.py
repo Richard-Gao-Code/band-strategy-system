@@ -31,6 +31,11 @@ class BatchAggregation:
     win_rate_count: int = 0
     return_count: int = 0
     return_distribution: list[float] = field(default_factory=list)
+    combo_sum_return: dict[str, float] = field(default_factory=dict)
+    combo_return_count: dict[str, int] = field(default_factory=dict)
+    combo_sum_win_rate: dict[str, float] = field(default_factory=dict)
+    combo_win_rate_count: dict[str, int] = field(default_factory=dict)
+    combo_example: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def update_from_result(self, res: dict[str, Any]) -> None:
         if not isinstance(res, dict):
@@ -43,6 +48,9 @@ class BatchAggregation:
 
         total_return = res.get("total_return")
         win_rate = res.get("win_rate")
+        combo_label = res.get("__combo_label__") or res.get("combo_label")
+        combo_obj = res.get("__combo__") or res.get("combo")
+        combo_label_s = str(combo_label).strip() if combo_label is not None else ""
 
         try:
             total_return_f = float(total_return)
@@ -50,12 +58,22 @@ class BatchAggregation:
             self.return_count += 1
             if len(self.return_distribution) < 5000:
                 self.return_distribution.append(total_return_f)
+            if combo_label_s:
+                if combo_label_s not in self.combo_example and len(self.combo_example) < 2000:
+                    self.combo_example[combo_label_s] = combo_obj if isinstance(combo_obj, dict) else {}
+                if combo_label_s in self.combo_example:
+                    self.combo_sum_return[combo_label_s] = float(self.combo_sum_return.get(combo_label_s, 0.0)) + total_return_f
+                    self.combo_return_count[combo_label_s] = int(self.combo_return_count.get(combo_label_s, 0)) + 1
         except Exception:
             pass
 
         try:
-            self.sum_win_rate += float(win_rate)
+            win_rate_f = float(win_rate)
+            self.sum_win_rate += win_rate_f
             self.win_rate_count += 1
+            if combo_label_s and combo_label_s in self.combo_example:
+                self.combo_sum_win_rate[combo_label_s] = float(self.combo_sum_win_rate.get(combo_label_s, 0.0)) + win_rate_f
+                self.combo_win_rate_count[combo_label_s] = int(self.combo_win_rate_count.get(combo_label_s, 0)) + 1
         except Exception:
             pass
 
@@ -66,11 +84,36 @@ class BatchAggregation:
         avg_return = (self.sum_return / self.return_count) if self.return_count else 0.0
         win_rate = (self.sum_win_rate / self.win_rate_count) if self.win_rate_count else 0.0
         rejection_rate = (self.rejected_count / total_considered) if total_considered else 0.0
+        combo_top: list[dict[str, Any]] = []
+        try:
+            rows = []
+            for cl, combo in self.combo_example.items():
+                rc = int(self.combo_return_count.get(cl, 0))
+                if rc <= 0:
+                    continue
+                ar = float(self.combo_sum_return.get(cl, 0.0)) / rc
+                wc = int(self.combo_win_rate_count.get(cl, 0))
+                wr = (float(self.combo_sum_win_rate.get(cl, 0.0)) / wc) if wc > 0 else 0.0
+                rows.append((ar, cl, rc, wr, combo))
+            rows.sort(key=lambda x: x[0], reverse=True)
+            for ar, cl, rc, wr, combo in rows[:20]:
+                combo_top.append(
+                    {
+                        "combo_label": cl,
+                        "avg_return": round(float(ar), 6),
+                        "win_rate": round(float(wr), 4),
+                        "samples": int(rc),
+                        "combo": combo if isinstance(combo, dict) else {},
+                    }
+                )
+        except Exception:
+            combo_top = []
         return {
             "win_rate": round(win_rate, 4),
             "avg_return": round(avg_return, 6),
             "rejection_rate": round(rejection_rate, 4),
             "return_distribution": self.return_distribution,
+            "combo_top": combo_top,
         }
 
 
@@ -83,12 +126,13 @@ class BatchTaskState:
     started_at: str | None = None
     ended_at: str | None = None
     cancel_requested: bool = False
+    grid_metadata: dict[str, Any] | None = None
     aggregation: BatchAggregation = field(default_factory=BatchAggregation)
     updated_at_ts: float = field(default_factory=time.time)
 
 
 class BatchTaskManager:
-    def __init__(self, *, max_tasks: int = 50, ttl_seconds: int = 3600) -> None:
+    def __init__(self, *, max_tasks: int = 5, ttl_seconds: int = 3600) -> None:
         # 使用可重入锁，避免同线程嵌套调用导致死锁
         self._lock = threading.RLock()
         self._tasks: dict[str, BatchTaskState] = {}
@@ -97,9 +141,15 @@ class BatchTaskManager:
         self._max_tasks = max(1, int(max_tasks))
         self._ttl_seconds = max(60, int(ttl_seconds))
 
-    def create_task(self, *, total: int) -> BatchTaskState:
+    def create_task(self, *, total: int, grid_metadata: dict[str, Any] | None = None) -> BatchTaskState:
         task_id = uuid.uuid4().hex
-        state = BatchTaskState(task_id=task_id, status="running", total=max(0, int(total)), started_at=datetime.now().isoformat())
+        state = BatchTaskState(
+            task_id=task_id,
+            status="running",
+            total=max(0, int(total)),
+            started_at=datetime.now().isoformat(),
+            grid_metadata=grid_metadata if isinstance(grid_metadata, dict) else None,
+        )
         with self._lock:
             self._cleanup_locked()
             if len(self._tasks) >= self._max_tasks:
@@ -121,15 +171,15 @@ class BatchTaskManager:
                 raise KeyError("task not found")
             if st.status == "completed":
                 raise ValueError("task already completed")
-            if st.status == "cancelled" or st.cancel_requested:
-                raise ValueError("task already cancelled")
+            if st.status == "cancelled":
+                return
+            if st.cancel_requested:
+                return
             st.cancel_requested = True
-            st.status = "cancelled"
-            st.ended_at = datetime.now().isoformat()
             st.updated_at_ts = time.time()
             self._aggregation_cache.pop(task_id, None)
 
-        logger.info("Batch task cancelled: task_id=%s done=%s total=%s", task_id, st.done, st.total)
+        logger.info("Batch task cancel requested: task_id=%s done=%s total=%s", task_id, st.done, st.total)
 
     def cancel_task(self, task_id: str) -> None:
         self.request_cancel(task_id)
@@ -152,6 +202,22 @@ class BatchTaskManager:
             self._aggregation_cache[task_id] = st.aggregation.to_dict()
 
         logger.info("Batch task completed: task_id=%s done=%s total=%s", task_id, st.done, st.total)
+
+    def mark_cancelled(self, task_id: str) -> None:
+        with self._lock:
+            st = self._tasks.get(task_id)
+            if st is None:
+                return
+            if st.status == "completed":
+                return
+            if st.status == "cancelled":
+                return
+            st.status = "cancelled"
+            st.ended_at = datetime.now().isoformat()
+            st.updated_at_ts = time.time()
+            self._aggregation_cache.pop(task_id, None)
+
+        logger.info("Batch task cancelled: task_id=%s done=%s total=%s", task_id, st.done, st.total)
 
     def update_progress(self, task_id: str, *, res: dict[str, Any] | None = None) -> None:
         with self._lock:
@@ -186,6 +252,7 @@ class BatchTaskManager:
                 "status": st.status,
                 "progress": f"{st.done}/{st.total}",
                 "aggregation": aggregation,
+                "grid_metadata": st.grid_metadata,
             }
 
     def _cleanup_locked(self) -> None:

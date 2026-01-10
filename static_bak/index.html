@@ -617,6 +617,13 @@
             <div class="md:col-span-8">
               <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">参数组合（每行一个组合）</label>
               <textarea id="pt-param-sets" class="form-input w-full min-h-[92px]" placeholder="例如：vol_shrink_min=1.02, vol_shrink_max=1.12&#10;vol_shrink_min=1.00, vol_shrink_max=1.15"></textarea>
+              <div class="mt-1 flex flex-wrap items-center gap-2">
+                <span class="text-[10px] text-slate-400 dark:text-slate-500">快速选参:</span>
+                <select id="pt-param-key" class="form-input py-1 text-[10px] min-w-[220px]"></select>
+                <input id="pt-param-value" class="form-input py-1 text-[10px] w-28" placeholder="值" />
+                <button id="pt-param-insert-btn" class="btn-secondary px-3 py-1 text-[10px]">插入到当前行</button>
+                <button id="pt-param-newline-btn" class="btn-secondary px-3 py-1 text-[10px]">新建一行</button>
+              </div>
               <div class="mt-1 text-[10px] text-slate-400">空行会忽略；没写的参数将使用上方当前策略参数</div>
             </div>
           </div>
@@ -626,10 +633,44 @@
               <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">网格参数（可选，自动生成组合）</label>
               <button id="pt-grid-gen-btn" class="text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 bg-transparent border-0 p-0 cursor-pointer">生成到列表 ⬇</button>
             </div>
+            <div class="mb-1 flex flex-wrap items-center gap-2">
+              <span class="text-[10px] text-slate-400 dark:text-slate-500">输入模式:</span>
+              <label class="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 select-none">
+                <input type="radio" name="pt-grid-mode" value="manual" class="form-radio h-3 w-3 text-blue-600 border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                手动
+              </label>
+              <label class="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 select-none">
+                <input type="radio" name="pt-grid-mode" value="file" class="form-radio h-3 w-3 text-blue-600 border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                文件
+              </label>
+              <label class="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 select-none">
+                <input type="radio" name="pt-grid-mode" value="range" class="form-radio h-3 w-3 text-blue-600 border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" />
+                范围
+              </label>
+              <button id="pt-grid-file-btn" class="btn-secondary px-3 py-1 text-[10px] hidden">选择文件</button>
+              <input id="pt-grid-file" type="file" accept=".json,.csv" class="hidden" />
+              <span id="pt-grid-file-name" class="text-[10px] text-slate-400 dark:text-slate-500 hidden"></span>
+            </div>
             <textarea id="pt-param-grid" class="form-input w-full min-h-[70px]" placeholder="例如：vol_shrink_min: [1.00, 1.02, 1.05]&#10;vol_shrink_max: [1.12, 1.15, 1.18]"></textarea>
+            <div id="pt-grid-preview" class="mt-1 text-[10px] text-slate-400 dark:text-slate-500"></div>
           </div>
 
           <div id="pt-status" class="text-[10px] font-bold text-slate-400 dark:text-slate-500">待开始</div>
+
+          <div id="pt-tasks-panel" class="mt-2">
+            <div class="flex items-center justify-between">
+              <div class="text-[10px] font-bold text-slate-500 dark:text-slate-400">批量任务</div>
+              <div class="flex items-center gap-2">
+                <button id="pt-tasks-refresh" class="btn-secondary px-3 py-1.5 text-[10px]">刷新</button>
+                <label class="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1 select-none">
+                  <input type="checkbox" id="pt-tasks-auto" class="form-checkbox h-3 w-3 text-blue-600 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-800 focus:ring-blue-500" checked />
+                  自动
+                </label>
+              </div>
+            </div>
+            <div id="pt-tasks-msg" class="text-[10px] text-slate-400 dark:text-slate-500 mt-1"></div>
+            <div id="pt-tasks-list" class="mt-1"></div>
+          </div>
         </div>
       </section>
 
@@ -1947,7 +1988,7 @@
     };
   </script>
   <!-- Chart.js omitted to avoid external CDN blocking; charts will be skipped if unavailable -->
-  <script src="/static/app.js?v=1.0.19"></script>
+  <script src="/static/app.js?v=1.0.23"></script>
   <script>
     async function fetchConstituents(indexName) {
         const btn = event.target;

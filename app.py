@@ -997,7 +997,22 @@ async def api_param_batch_test(req: ParamBatchReq):
             done = 0
             symbols_local = list(symbol_paths.keys())
             total = len(symbols_local) * len(param_sets)
-            st = batch_task_manager.create_task(total=total)
+            param_keys = set()
+            for ps in param_sets:
+                if not isinstance(ps, dict):
+                    continue
+                for k in ps.keys():
+                    kk = str(k).strip()
+                    if not kk or kk == "__name__":
+                        continue
+                    param_keys.add(kk)
+            grid_metadata = {
+                "combos": len(param_sets),
+                "symbols": len(symbols_local),
+                "total": total,
+                "param_keys": sorted(param_keys),
+            }
+            st = batch_task_manager.create_task(total=total, grid_metadata=grid_metadata)
             task_id = st.task_id
 
             try:
@@ -1009,7 +1024,7 @@ async def api_param_batch_test(req: ParamBatchReq):
                     len(param_sets),
                     len(symbols_local),
                 )
-                yield _json_dumps({"type": "start", "task_id": task_id, "total": total, "combos": len(param_sets), "symbols": len(symbols_local), "started_at": started_at}) + "\n"
+                yield _json_dumps({"type": "start", "task_id": task_id, "total": total, "combos": len(param_sets), "symbols": len(symbols_local), "started_at": started_at, "grid_metadata": grid_metadata}) + "\n"
 
                 pool = executor if len(symbols_local) > 1 else None
                 max_in_flight = max(1, min(16, int(executor_max_workers or 4)))
@@ -1080,7 +1095,13 @@ async def api_param_batch_test(req: ParamBatchReq):
                             prog = f"{done}/{total}"
                             try:
                                 res = await fut
-                                batch_task_manager.update_progress(task_id, res=res if isinstance(res, dict) else None)
+                                res_for_agg = res if isinstance(res, dict) else None
+                                if isinstance(res_for_agg, dict):
+                                    res_for_agg = dict(res_for_agg)
+                                    res_for_agg["__combo__"] = combo
+                                    res_for_agg["__combo_label__"] = combo_label
+                                    res_for_agg["__combo_idx__"] = combo_idx + 1
+                                batch_task_manager.update_progress(task_id, res=res_for_agg)
                                 payload = {
                                     "type": "result",
                                     "status": "success",
@@ -1093,7 +1114,7 @@ async def api_param_batch_test(req: ParamBatchReq):
                                 }
                                 yield _json_dumps(payload) + "\n"
                             except Exception as e:
-                                batch_task_manager.update_progress(task_id, res={"error": str(e)})
+                                batch_task_manager.update_progress(task_id, res={"error": str(e), "__combo__": combo, "__combo_label__": combo_label, "__combo_idx__": combo_idx + 1})
                                 yield _json_dumps({"type": "error", "message": str(e), "progress": prog, "combo_label": combo_label}) + "\n"
 
                             if not batch_task_manager.is_cancel_requested(task_id):
@@ -1105,11 +1126,13 @@ async def api_param_batch_test(req: ParamBatchReq):
                     logger.info("Batch test completed: task_id=%s progress=%s/%s", task_id, done, total)
                     yield _json_dumps({"type": "end", "task_id": task_id, "ended_at": ended_at, "progress": f"{done}/{total}", "status": "completed"}) + "\n"
                 else:
+                    batch_task_manager.mark_cancelled(task_id)
                     logger.info("Batch test cancelled: task_id=%s progress=%s/%s", task_id, done, total)
                     yield _json_dumps({"type": "end", "task_id": task_id, "ended_at": ended_at, "progress": f"{done}/{total}", "status": "cancelled"}) + "\n"
             except asyncio.CancelledError:
                 try:
                     batch_task_manager.request_cancel(task_id)
+                    batch_task_manager.mark_cancelled(task_id)
                 except Exception:
                     pass
                 logger.info("Batch test client disconnected: task_id=%s", task_id)
@@ -1124,7 +1147,6 @@ async def api_param_batch_test(req: ParamBatchReq):
 
 @app.post("/batch_test/cancel")
 async def batch_test_cancel(request: Request):
-    # 状态机：running -> cancelled
     try:
         payload = await request.json()
     except json.JSONDecodeError:
@@ -1141,7 +1163,7 @@ async def batch_test_cancel(request: Request):
 
     try:
         batch_task_manager.request_cancel(task_id)
-        return {"status": "cancelled"}
+        return {"status": "cancel_requested"}
     except KeyError:
         raise HTTPException(status_code=404, detail="task not found")
     except ValueError as e:

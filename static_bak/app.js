@@ -78,6 +78,16 @@ let _paramTestState = {
   abortController: null
 };
 
+const _BATCH_TASK_STORAGE_KEY = "batch_task_ids_v1";
+const _BATCH_TASK_MAX_KEEP = 5;
+let _batchTasksState = {
+  taskIds: [],
+  timer: null,
+  auto: true,
+  lastStatuses: {},
+  refreshing: false
+};
+
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
 /* -------------------------------------------------------------------------- */
@@ -126,6 +136,277 @@ function _escapeHtml(str) {
 function parseSymbolsInput(text) {
   if (!text) return [];
   return text.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+}
+
+function _loadBatchTaskIds() {
+  try {
+    const raw = localStorage.getItem(_BATCH_TASK_STORAGE_KEY);
+    const arr = JSON.parse(raw || "[]");
+    if (!Array.isArray(arr)) return [];
+    return arr.map(x => String(x || "").trim()).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+function _saveBatchTaskIds(taskIds) {
+  try {
+    localStorage.setItem(_BATCH_TASK_STORAGE_KEY, JSON.stringify(taskIds || []));
+  } catch (e) {}
+}
+
+function rememberBatchTaskId(taskId) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const ids = _loadBatchTaskIds();
+  const next = [tid, ...ids.filter(x => x !== tid)].slice(0, _BATCH_TASK_MAX_KEEP);
+  _saveBatchTaskIds(next);
+  _batchTasksState.taskIds = next;
+}
+
+function _pruneBatchTaskIds() {
+  const ids = Array.isArray(_batchTasksState.taskIds) ? _batchTasksState.taskIds : [];
+  const next = ids.map(x => String(x || "").trim()).filter(Boolean).slice(0, _BATCH_TASK_MAX_KEEP);
+  _batchTasksState.taskIds = next;
+  _saveBatchTaskIds(next);
+}
+
+function _batchEls() {
+  return {
+    panel: document.getElementById("pt-tasks-panel"),
+    list: document.getElementById("pt-tasks-list"),
+    msg: document.getElementById("pt-tasks-msg"),
+    btnRefresh: document.getElementById("pt-tasks-refresh"),
+    chkAuto: document.getElementById("pt-tasks-auto")
+  };
+}
+
+function _fmtNum(v, digits) {
+  if (v == null) return "--";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "--";
+  const d = Number.isFinite(Number(digits)) ? Math.max(0, Math.min(8, Number(digits))) : 4;
+  return n.toFixed(d);
+}
+
+const _BATCH_TASK_POLL_INTERVAL = {
+  running: 5000,
+  completed: 30000,
+  cancelled: 30000,
+  default: 10000,
+};
+
+function updateCancelButton(taskId, status) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const row = document.querySelector(`[data-task-id="${tid}"]`);
+  const btn = row ? row.querySelector(".cancel-btn") : null;
+  if (!btn) return;
+
+  if (status === "running") {
+    btn.style.display = "inline-block";
+    btn.disabled = false;
+    btn.textContent = "取消任务";
+  } else {
+    btn.style.display = "none";
+  }
+}
+
+function _getBatchTaskEffectiveStatus(taskId, statusMap, errorsMap) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return "--";
+  const stNow = (statusMap && statusMap[tid]) ? statusMap[tid] : null;
+  const stPrev = (_batchTasksState.lastStatuses && _batchTasksState.lastStatuses[tid]) ? _batchTasksState.lastStatuses[tid] : null;
+  const err = (errorsMap && errorsMap[tid]) ? String(errorsMap[tid]) : "";
+  const s = (stNow && stNow.status) ? String(stNow.status) : ((stPrev && stPrev.status) ? String(stPrev.status) : "");
+  return s || (err ? "error" : "--");
+}
+
+function _calcBatchTasksPollDelayMs(statusMap, errorsMap) {
+  const ids = _batchTasksState.taskIds || [];
+  for (const tid of ids) {
+    const st = _getBatchTaskEffectiveStatus(tid, statusMap, errorsMap);
+    if (st === "running") return _BATCH_TASK_POLL_INTERVAL.running;
+  }
+  return _BATCH_TASK_POLL_INTERVAL.completed;
+}
+
+function _clearBatchTasksTimer() {
+  if (_batchTasksState.timer) {
+    clearTimeout(_batchTasksState.timer);
+    _batchTasksState.timer = null;
+  }
+}
+
+function _scheduleNextBatchTasksPoll(delayMs) {
+  _clearBatchTasksTimer();
+  if (!_batchTasksState.auto) return;
+  const ms = Number.isFinite(Number(delayMs)) ? Math.max(1000, Number(delayMs)) : _BATCH_TASK_POLL_INTERVAL.default;
+  _batchTasksState.timer = setTimeout(() => {
+    refreshBatchTasksStatus().catch(() => {});
+  }, ms);
+}
+
+function _renderBatchTasks(statusMap, errorsMap) {
+  const { list } = _batchEls();
+  if (!list) return;
+  const ids = _batchTasksState.taskIds || [];
+  if (!ids.length) {
+    list.innerHTML = `<div class="text-[10px] text-slate-400 dark:text-slate-500">暂无任务（启动一次批量测试后会自动记录 task_id）</div>`;
+    return;
+  }
+
+  const rows = ids.map(taskId => {
+    const stNow = (statusMap && statusMap[taskId]) || null;
+    const stPrev = (_batchTasksState.lastStatuses && _batchTasksState.lastStatuses[taskId]) || null;
+    const st = stNow || stPrev || null;
+    const err = (errorsMap && errorsMap[taskId]) || "";
+    const status = _getBatchTaskEffectiveStatus(taskId, statusMap, errorsMap);
+    const progress = st && st.progress ? String(st.progress) : "--";
+    const agg = (st && st.aggregation && typeof st.aggregation === "object") ? st.aggregation : null;
+    const winRate = agg ? _fmtNum(agg.win_rate, 4) : "--";
+    const avgReturn = agg ? _fmtNum(agg.avg_return, 6) : "--";
+    const rejRate = agg ? _fmtNum(agg.rejection_rate, 4) : "--";
+
+    const showCancel = status === "running";
+    const cancelStyle = showCancel ? "display:inline-block" : "display:none";
+    const action = `<button type="button" class="cancel-btn" onclick="cancelBatchTask(${JSON.stringify(taskId)})" style="color: blue; text-decoration: underline; background: transparent; border: 0; padding: 0; cursor: pointer; ${cancelStyle};" ${showCancel ? "" : "disabled"}>取消任务</button>`;
+
+    const errHtml = err ? `<div class="text-[10px] text-red-600 dark:text-red-400 mt-1">${_escapeHtml(err)}</div>` : "";
+
+    return `
+      <tr data-task-id="${String(taskId)}">
+        <td class="px-2 py-1 border">${_escapeHtml(taskId)}</td>
+        <td class="px-2 py-1 border">${_escapeHtml(status)}</td>
+        <td class="px-2 py-1 border">${_escapeHtml(progress)}</td>
+        <td class="px-2 py-1 border">${_escapeHtml(winRate)}</td>
+        <td class="px-2 py-1 border">${_escapeHtml(avgReturn)}</td>
+        <td class="px-2 py-1 border">${_escapeHtml(rejRate)}</td>
+        <td class="px-2 py-1 border">${action}</td>
+      </tr>
+      ${errHtml ? `<tr><td class="px-2 py-1 border" colspan="7">${errHtml}</td></tr>` : ""}
+    `;
+  }).join("");
+
+  list.innerHTML = `
+    <table border="1" cellspacing="0" cellpadding="3" class="text-[10px] w-full">
+      <thead>
+        <tr>
+          <th class="px-2 py-1">task_id</th>
+          <th class="px-2 py-1">状态</th>
+          <th class="px-2 py-1">进度</th>
+          <th class="px-2 py-1">胜率</th>
+          <th class="px-2 py-1">平均收益</th>
+          <th class="px-2 py-1">拒绝率</th>
+          <th class="px-2 py-1">操作</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function refreshBatchTasksStatus() {
+  const { msg } = _batchEls();
+  _pruneBatchTaskIds();
+  const ids = _batchTasksState.taskIds || [];
+  if (!ids.length) {
+    _renderBatchTasks({}, {});
+    return;
+  }
+  if (_batchTasksState.refreshing) return;
+  _batchTasksState.refreshing = true;
+  if (msg) msg.textContent = "刷新中...";
+
+  const statusMap = {};
+  const errorsMap = {};
+  const removed = new Set();
+
+  try {
+    await Promise.all(ids.map(async (taskId) => {
+      try {
+        const resp = await fetch(`/batch_test/status?task_id=${encodeURIComponent(taskId)}`, { method: "GET" });
+        if (resp.status === 404) {
+          removed.add(String(taskId || "").trim());
+          return;
+        }
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        statusMap[taskId] = await resp.json();
+      } catch (e) {
+        errorsMap[taskId] = toMsg(e);
+      }
+    }));
+
+    if (removed.size) {
+      const nextIds = ids.filter(x => !removed.has(String(x || "").trim()));
+      _batchTasksState.taskIds = nextIds;
+      _saveBatchTaskIds(nextIds);
+    }
+
+    const prev = (_batchTasksState.lastStatuses && typeof _batchTasksState.lastStatuses === "object") ? _batchTasksState.lastStatuses : {};
+    _batchTasksState.lastStatuses = { ...prev, ...statusMap };
+
+    _renderBatchTasks(statusMap, errorsMap);
+    for (const tid of _batchTasksState.taskIds || []) {
+      updateCancelButton(tid, _getBatchTaskEffectiveStatus(tid, statusMap, errorsMap));
+    }
+    if (msg) msg.textContent = `已刷新 ${( _batchTasksState.taskIds || [] ).length} 个任务（${new Date().toLocaleTimeString()}）`;
+  } finally {
+    _batchTasksState.refreshing = false;
+    if ((_batchTasksState.taskIds || []).length) {
+      _scheduleNextBatchTasksPoll(_calcBatchTasksPollDelayMs(statusMap, errorsMap));
+    } else {
+      _clearBatchTasksTimer();
+    }
+  }
+}
+
+async function cancelBatchTask(taskId) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  if (!confirm("确定要取消此任务吗？")) return;
+  try {
+    const resp = await fetch("/batch_test/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: tid })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `取消失败: HTTP ${resp.status}`);
+    }
+    alert("取消成功");
+  } catch (e) {
+    alert("取消失败: " + toMsg(e));
+  } finally {
+    await refreshBatchTasksStatus();
+  }
+}
+
+function _setBatchTasksAuto(enabled) {
+  _batchTasksState.auto = !!enabled;
+  _clearBatchTasksTimer();
+  if (_batchTasksState.auto) refreshBatchTasksStatus().catch(() => {});
+}
+
+function initBatchTasksPanel() {
+  const { panel, btnRefresh, chkAuto } = _batchEls();
+  if (!panel) return;
+
+  _batchTasksState.taskIds = _loadBatchTaskIds();
+
+  if (btnRefresh) {
+    btnRefresh.onclick = () => refreshBatchTasksStatus();
+  }
+  if (chkAuto) {
+    chkAuto.onchange = () => _setBatchTasksAuto(!!chkAuto.checked);
+  }
+
+  _setBatchTasksAuto(chkAuto ? !!chkAuto.checked : true);
+  refreshBatchTasksStatus().catch(() => {});
 }
 
 function appendRunLog(msg) {
@@ -1301,10 +1582,483 @@ function exportRejectionDetailsCsv(rejections, symbol) {
 /*                           Batch Parameter Test                             */
 /* -------------------------------------------------------------------------- */
 
+function _ptGetQuickParamKeys() {
+  let keys = [];
+  try {
+    const cfg = getStrategyConfigFromUI();
+    if (cfg && typeof cfg === "object") keys = Object.keys(cfg);
+  } catch (_) {}
+  if (!keys.length) keys = Object.keys(PARAM_DEFINITIONS || {});
+  return Array.from(new Set(keys)).filter(Boolean).sort();
+}
+
+function _ptKeyLabel(k) {
+  const d = (PARAM_DEFINITIONS && PARAM_DEFINITIONS[k]) ? PARAM_DEFINITIONS[k] : null;
+  const name = d && d.name ? String(d.name) : "";
+  return name ? `${name} (${k})` : k;
+}
+
+function _ptDispatchChange(el) {
+  if (!el) return;
+  el.dispatchEvent(new Event("input"));
+  el.dispatchEvent(new Event("change"));
+}
+
+function _ptUpsertKvToLine(line, k, v) {
+  const raw = String(line ?? "");
+  const parts = raw.split(",").map(s => s.trim()).filter(Boolean);
+  const kvText = `${k}=${v}`;
+  if (!parts.length) return kvText;
+  let hit = false;
+  const out = parts.map(p => {
+    const idx = p.indexOf("=");
+    if (idx <= 0) return p;
+    const pk = p.slice(0, idx).trim();
+    if (pk !== k) return p;
+    hit = true;
+    return kvText;
+  });
+  if (!hit) out.push(kvText);
+  return out.join(", ");
+}
+
+function _ptInsertIntoCurrentLine(textarea, k, v) {
+  const text = String(textarea.value ?? "");
+  const isActive = document.activeElement === textarea;
+  const pos = (!isActive && text)
+    ? text.length
+    : ((typeof textarea.selectionStart === "number") ? textarea.selectionStart : text.length);
+  const lineStart = Math.max(0, text.lastIndexOf("\n", Math.max(0, pos - 1)) + 1);
+  const lineEnd = (() => {
+    const i = text.indexOf("\n", pos);
+    return i === -1 ? text.length : i;
+  })();
+  const line = text.slice(lineStart, lineEnd);
+  const nextLine = _ptUpsertKvToLine(line, k, v);
+  const nextText = text.slice(0, lineStart) + nextLine + text.slice(lineEnd);
+  textarea.value = nextText;
+  const nextPos = lineStart + nextLine.length;
+  textarea.selectionStart = nextPos;
+  textarea.selectionEnd = nextPos;
+  _ptDispatchChange(textarea);
+}
+
+function _ptEnsureNewLineAtEnd(textarea) {
+  const text = String(textarea.value ?? "");
+  const next = text && !text.endsWith("\n") ? (text + "\n") : text;
+  textarea.value = next;
+  textarea.selectionStart = next.length;
+  textarea.selectionEnd = next.length;
+  _ptDispatchChange(textarea);
+}
+
+function initParamBatchQuickInsert() {
+  const keySel = document.getElementById("pt-param-key");
+  const valInput = document.getElementById("pt-param-value");
+  const insertBtn = document.getElementById("pt-param-insert-btn");
+  const newLineBtn = document.getElementById("pt-param-newline-btn");
+  const textarea = document.getElementById("pt-param-sets");
+
+  if (!keySel || !valInput || !insertBtn || !newLineBtn || !textarea) return;
+
+  const keys = _ptGetQuickParamKeys();
+  keySel.innerHTML = keys.map(k => `<option value="${_escapeHtml(k)}">${_escapeHtml(_ptKeyLabel(k))}</option>`).join("");
+
+  insertBtn.onclick = () => {
+    const k = String(keySel.value || "").trim();
+    const vRaw = String(valInput.value || "").trim();
+    if (!k) return alert("请选择参数");
+    if (!vRaw) return alert("请输入参数值");
+
+    textarea.focus();
+    _ptInsertIntoCurrentLine(textarea, k, vRaw);
+  };
+
+  newLineBtn.onclick = () => {
+    textarea.focus();
+    _ptEnsureNewLineAtEnd(textarea);
+  };
+
+  valInput.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    insertBtn.click();
+  });
+}
+
+function _ptGetGridMode() {
+  const nodes = document.querySelectorAll('input[name="pt-grid-mode"]');
+  for (const n of nodes) {
+    if (n && n.checked) return String(n.value || "manual");
+  }
+  return "manual";
+}
+
+function _ptSetGridMode(nextMode) {
+  const modes = ["manual", "file", "range"];
+  const mode = modes.includes(String(nextMode)) ? String(nextMode) : "manual";
+  const nodes = document.querySelectorAll('input[name="pt-grid-mode"]');
+  for (const n of nodes) {
+    if (!n) continue;
+    n.checked = String(n.value) === mode;
+  }
+
+  const fileBtn = document.getElementById("pt-grid-file-btn");
+  const fileName = document.getElementById("pt-grid-file-name");
+  const input = document.getElementById("pt-param-grid");
+  if (fileBtn) fileBtn.classList.toggle("hidden", mode !== "file");
+  if (fileName) fileName.classList.toggle("hidden", mode !== "file");
+
+  if (input) {
+    if (mode === "manual") {
+      input.placeholder = "例如：vol_shrink_min: [1.00, 1.02, 1.05]\nvol_shrink_max: [1.12, 1.15, 1.18]\n\n或：{\"vol_shrink_min\":[1.0,1.02],\"vol_shrink_max\":[1.12,1.15]}";
+    } else if (mode === "range") {
+      input.placeholder = "例如：vol_shrink_min: [0.1, 0.5, 0.1]\nvol_shrink_max: [10, 30, 10]\n\n自动组合：5×3=15";
+    } else {
+      input.placeholder = "选择 JSON/CSV 文件导入参数空间或参数组合";
+    }
+  }
+}
+
+function _ptParseMaybeNumber(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1);
+  const n = Number(s);
+  return Number.isFinite(n) ? n : s;
+}
+
+function _ptTryParseJson(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  if (!(t.startsWith("{") || t.startsWith("["))) return null;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return null;
+  }
+}
+
+function _ptDecimalsFromStep(step) {
+  const s = String(step);
+  if (s.includes("e-")) {
+    const p = s.split("e-")[1];
+    const n = Number(p);
+    return Number.isFinite(n) ? Math.min(12, Math.max(0, n)) : 6;
+  }
+  const idx = s.indexOf(".");
+  if (idx === -1) return 0;
+  return Math.min(12, Math.max(0, s.length - idx - 1));
+}
+
+function _ptBuildRange(start, end, step) {
+  const s = parseFloat(start);
+  const e = parseFloat(end);
+  const st = parseFloat(step);
+  if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(st)) throw new Error("范围模式需要数字: [start, end, step]");
+  if (st === 0) return [s];
+  if (s < e && st < 0) throw new Error("范围模式 step 方向不正确");
+  if (s > e && st > 0) throw new Error("范围模式 step 方向不正确");
+
+  const out = [];
+  const eps = 1e-10;
+  const maxLen = 20000;
+  const pushVal = (x) => {
+    const v = (Math.abs(st) < 1) ? parseFloat(x.toFixed(6)) : (Math.round(x * 1000000) / 1000000);
+    out.push(v);
+  };
+
+  if (st > 0) {
+    for (let i = s; i <= e + eps && out.length < maxLen; i += st) pushVal(i);
+  } else {
+    for (let i = s; i >= e - eps && out.length < maxLen; i += st) pushVal(i);
+  }
+
+  if (out.length >= maxLen) throw new Error("范围模式生成数量过大");
+  return out;
+}
+
+function _ptExtractFirstBracketExpr(s) {
+  const m = String(s ?? "").match(/\[[^\[\]]*\]/);
+  return m ? m[0] : "";
+}
+
+function _ptNormalizeGridLine(line) {
+  let s = String(line ?? "").trim();
+  s = s.replace(/^\s*[-*•]\s+/, "");
+  s = s.replace(/^\s*\d+\.\s+/, "");
+  return s.trim();
+}
+
+function _ptParseRangeExpression(expr) {
+  const m = String(expr ?? "").trim().match(/^\[\s*([^,\]]+)\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)\s*\]$/);
+  if (!m) return null;
+  const s = parseFloat(m[1]);
+  const e = parseFloat(m[2]);
+  const st = parseFloat(m[3]);
+  if (!Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(st)) return null;
+  const dist = e - s;
+  const eps = 1e-10;
+  if (st !== 0) {
+    if (dist > 0 && st < 0) return null;
+    if (dist < 0 && st > 0) return null;
+    if (Math.abs(st) > Math.abs(dist) + eps && Math.abs(dist) > eps) return null;
+  }
+  try {
+    return _ptBuildRange(s, e, st);
+  } catch {
+    return null;
+  }
+}
+
+function _ptUniqValues(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const v of (arr || [])) {
+    const k = (typeof v === "number" && Number.isFinite(v)) ? `n:${v}` : `s:${String(v)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(v);
+  }
+  return out;
+}
+
+function _ptParseGridLines(text, mode) {
+  const lines = String(text || "").split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("#"));
+  const keys = [];
+  const values = [];
+
+  for (const line of lines) {
+    const normLine = _ptNormalizeGridLine(line);
+    const parts = normLine.split(/[:=]/);
+    if (parts.length < 2) continue;
+    const key = parts[0].trim();
+    if (!key) continue;
+    let valStr = parts.slice(1).join(":").trim();
+    if (!valStr) continue;
+
+    const bracketExpr = _ptExtractFirstBracketExpr(valStr);
+    if (bracketExpr) {
+      if (mode === "range") {
+        const range = _ptParseRangeExpression(bracketExpr);
+        if (range) {
+          keys.push(key);
+          values.push(range);
+          continue;
+        }
+      }
+      const inner = bracketExpr.slice(1, -1).trim();
+      const rawParts = inner ? inner.split(",").map(v => v.trim()).filter(Boolean) : [];
+      const vs = rawParts.map(_ptParseMaybeNumber);
+      keys.push(key);
+      values.push(vs);
+    } else {
+      const v = _ptParseMaybeNumber(valStr.split("#")[0].trim());
+      keys.push(key);
+      values.push([v]);
+    }
+  }
+
+  return { keys, values };
+}
+
+function _ptJsonGridToKeyValues(obj, mode) {
+  const keys = [];
+  const values = [];
+  for (const [k, v] of Object.entries(obj || {})) {
+    const key = String(k || "").trim();
+    if (!key) continue;
+    if (Array.isArray(v)) {
+      const vs = v.map(_ptParseMaybeNumber);
+      if (mode === "range" && vs.length === 3 && vs.every(x => typeof x === "number" && Number.isFinite(x))) {
+        const s = Number(vs[0]);
+        const e = Number(vs[1]);
+        const st = Number(vs[2]);
+        const dist = e - s;
+        const eps = 1e-10;
+        const okDir = st === 0 ? true : !((dist > 0 && st < 0) || (dist < 0 && st > 0));
+        const okStep = Math.abs(dist) <= eps ? true : (Math.abs(st) <= Math.abs(dist) + eps);
+        if (okDir && okStep) {
+          keys.push(key);
+          values.push(_ptBuildRange(s, e, st));
+        } else {
+          keys.push(key);
+          values.push(vs);
+        }
+      } else {
+        keys.push(key);
+        values.push(vs);
+      }
+    } else {
+      keys.push(key);
+      values.push([_ptParseMaybeNumber(v)]);
+    }
+  }
+  return { keys, values };
+}
+
+function _ptParamSetsToLines(paramSets) {
+  const out = [];
+  for (const ps of paramSets || []) {
+    if (!ps || typeof ps !== "object") continue;
+    const parts = [];
+    for (const [k, v] of Object.entries(ps)) {
+      if (String(k) === "__name__") continue;
+      const vv = typeof v === "string" ? v : (typeof v === "number" ? String(v) : JSON.stringify(v));
+      parts.push(`${k}=${vv}`);
+    }
+    if (parts.length) out.push(parts.join(", "));
+  }
+  return out;
+}
+
+function _ptParseGridInput(text, mode) {
+  const j = _ptTryParseJson(text);
+  if (Array.isArray(j)) {
+    const paramSets = j.filter(x => x && typeof x === "object");
+    return { kind: "param_sets", paramSets };
+  }
+  if (j && typeof j === "object") {
+    const { keys, values } = _ptJsonGridToKeyValues(j, mode);
+    return { kind: "grid", keys, values };
+  }
+  const { keys, values } = _ptParseGridLines(text, mode);
+  return { kind: "grid", keys, values };
+}
+
+function _ptCountCombos(values) {
+  let n = 1n;
+  for (const arr of values || []) {
+    const len = Array.isArray(arr) ? arr.length : 0;
+    n *= BigInt(len);
+    if (n > 1000000000n) return { count: n, capped: true };
+  }
+  return { count: n, capped: false };
+}
+
+function _ptUpdateGridPreview() {
+  const input = document.getElementById("pt-param-grid");
+  const preview = document.getElementById("pt-grid-preview");
+  if (!input || !preview) return;
+  const text = String(input.value || "").trim();
+  if (!text) {
+    preview.textContent = "";
+    return;
+  }
+  const mode = _ptGetGridMode();
+  try {
+    const parsed = _ptParseGridInput(text, mode);
+    if (parsed.kind === "param_sets") {
+      const n = BigInt(parsed.paramSets.length || 0);
+      preview.textContent = `预计生成 ${n.toString()} 组参数组合`;
+      return;
+    }
+    const keys = parsed.keys || [];
+    const values = parsed.values || [];
+    if (!keys.length) {
+      preview.textContent = "未识别到有效的参数配置";
+      return;
+    }
+    const { count, capped } = _ptCountCombos(values);
+    const label = capped ? `${count.toString()}+` : count.toString();
+    preview.textContent = `预计生成 ${label} 组参数组合`;
+  } catch (e) {
+    preview.textContent = `解析失败: ${e.message}`;
+  }
+}
+
+function initParamGridInputModes() {
+  const input = document.getElementById("pt-param-grid");
+  const fileBtn = document.getElementById("pt-grid-file-btn");
+  const fileInput = document.getElementById("pt-grid-file");
+  const fileName = document.getElementById("pt-grid-file-name");
+  if (!input) return;
+
+  const radios = document.querySelectorAll('input[name="pt-grid-mode"]');
+  for (const r of radios) {
+    if (!r) continue;
+    r.addEventListener("change", () => {
+      _ptSetGridMode(_ptGetGridMode());
+      _ptUpdateGridPreview();
+    });
+  }
+
+  input.addEventListener("input", () => _ptUpdateGridPreview());
+  _ptSetGridMode(_ptGetGridMode());
+  _ptUpdateGridPreview();
+
+  if (fileBtn && fileInput) {
+    fileBtn.onclick = () => fileInput.click();
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener("change", async () => {
+      const f = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+      if (!f) return;
+      if (fileName) {
+        fileName.textContent = f.name;
+        fileName.classList.remove("hidden");
+      }
+      const ext = String(f.name || "").toLowerCase().split(".").pop() || "";
+      const text = await f.text();
+      const output = document.getElementById("pt-param-sets");
+      const mode = _ptGetGridMode();
+
+      try {
+        if (ext === "csv") {
+          const rows = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          if (!rows.length) throw new Error("CSV 为空");
+          const headers = rows[0].split(",").map(s => s.trim()).filter(Boolean);
+          if (!headers.length) throw new Error("CSV 表头为空");
+          const paramSets = [];
+          for (const line of rows.slice(1)) {
+            const cols = line.split(",").map(s => s.trim());
+            const obj = {};
+            for (let i = 0; i < headers.length; i++) {
+              const k = headers[i];
+              const v = cols[i] ?? "";
+              if (!k) continue;
+              const pv = _ptParseMaybeNumber(v);
+              if (pv === "") continue;
+              obj[k] = pv;
+            }
+            if (Object.keys(obj).length) paramSets.push(obj);
+          }
+          if (!paramSets.length) throw new Error("CSV 未解析到任何参数组合行");
+          if (output) output.value = _ptParamSetsToLines(paramSets).join("\n");
+          _ptUpdateGridPreview();
+          return;
+        }
+
+        const j = _ptTryParseJson(text);
+        if (Array.isArray(j)) {
+          const paramSets = j.filter(x => x && typeof x === "object");
+          if (!paramSets.length) throw new Error("JSON 数组未包含参数对象");
+          if (output) output.value = _ptParamSetsToLines(paramSets).join("\n");
+          _ptUpdateGridPreview();
+          return;
+        }
+        if (j && typeof j === "object") {
+          const { keys, values } = _ptJsonGridToKeyValues(j, mode === "file" ? "range" : mode);
+          const lines = keys.map((k, i) => `${k}: [${(values[i] || []).join(", ")}]`);
+          input.value = lines.join("\n");
+          _ptUpdateGridPreview();
+          return;
+        }
+        throw new Error("仅支持 JSON/CSV 文件");
+      } catch (e) {
+        alert("导入失败: " + e.message);
+      }
+    });
+  }
+}
+
 function generateParamGrid() {
   const input = document.getElementById("pt-param-grid");
   const output = document.getElementById("pt-param-sets");
   const status = document.getElementById("pt-status");
+  const preview = document.getElementById("pt-grid-preview");
   
   if (!input || !output) return;
   
@@ -1315,40 +2069,23 @@ function generateParamGrid() {
   }
   
   try {
-    const lines = text.split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("#"));
-    const keys = [];
-    const values = [];
-    
-    for (const line of lines) {
-      const parts = line.split(/[:=]/);
-      if (parts.length < 2) continue;
-      
-      const key = parts[0].trim();
-      let valStr = parts.slice(1).join(":").trim();
-      
-      if (valStr.startsWith("[") && valStr.endsWith("]")) {
-        try {
-          const inner = valStr.slice(1, -1);
-          const vs = inner.split(",").map(v => {
-            v = v.trim();
-            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-              return v.slice(1, -1);
-            }
-            return isNaN(Number(v)) ? v : Number(v);
-          });
-          keys.push(key);
-          values.push(vs);
-        } catch (e) {
-          console.warn("Failed to parse list:", valStr);
-        }
-      } else {
-        const v = isNaN(Number(valStr)) ? valStr : Number(valStr);
-        keys.push(key);
-        values.push([v]);
+    const mode = _ptGetGridMode();
+    const parsed = _ptParseGridInput(text, mode);
+    if (parsed.kind === "param_sets") {
+      const linesOut = _ptParamSetsToLines(parsed.paramSets);
+      output.value = linesOut.join("\n");
+      const msg = `总计：${linesOut.length}种组合`;
+      if (preview) {
+        const showN = Math.min(linesOut.length, 500);
+        const numbered = linesOut.slice(0, showN).map((ln, i) => `${i + 1}. ${ln}`);
+        preview.textContent = showN < linesOut.length ? (msg + "\n" + numbered.join("\n") + `\n...（仅展示前${showN}行）`) : (msg + "\n" + numbered.join("\n"));
       }
+      if (status && !_paramTestState.running) status.textContent = msg;
+      return;
     }
-    
-    if (keys.length === 0) {
+    const keys = parsed.keys || [];
+    const values = (parsed.values || []).map(vs => _ptUniqValues(vs));
+    if (!keys.length) {
       alert("未识别到有效的参数配置");
       return;
     }
@@ -1374,7 +2111,13 @@ function generateParamGrid() {
     });
     
     output.value = linesOut.join("\n");
-    if (status) status.textContent = `已生成 ${linesOut.length} 组参数组合`;
+    const msg = `总计：${linesOut.length}种组合`;
+    if (preview) {
+      const showN = Math.min(linesOut.length, 500);
+      const numbered = linesOut.slice(0, showN).map((ln, i) => `${i + 1}. ${ln}`);
+      preview.textContent = showN < linesOut.length ? (msg + "\n" + numbered.join("\n") + `\n...（仅展示前${showN}行）`) : (msg + "\n" + numbered.join("\n"));
+    }
+    if (status && !_paramTestState.running) status.textContent = msg;
     
   } catch (e) {
     alert("生成失败: " + e.message);
@@ -1521,7 +2264,9 @@ async function runParamBatchTest() {
 
 function handleBatchMsg(msg, status, tbody) {
   if (msg.type === "start") {
+    if (msg.task_id) rememberBatchTaskId(msg.task_id);
     if (status) status.textContent = `开始测试: 共 ${msg.total} 个任务`;
+    refreshBatchTasksStatus().catch(() => {});
   } else if (msg.type === "heartbeat") {
     if (status) status.textContent = `进行中: ${msg.progress}`;
   } else if (msg.type === "result") {
@@ -1540,6 +2285,8 @@ function handleBatchMsg(msg, status, tbody) {
     
     _paramTestState.results.push(row);
     renderBatchRow(tbody, row);
+  } else if (msg.type === "end") {
+    refreshBatchTasksStatus().catch(() => {});
   }
 }
 
@@ -2389,6 +3136,7 @@ function initApp() {
   initConfigParamHelpBinding();
   _smartLoadFileList();
   _poolInitUI();
+  initBatchTasksPanel();
   
   // Bind Batch Test buttons
   const btnExp = document.getElementById("pt-export-btn");
@@ -2397,6 +3145,8 @@ function initApp() {
   if(btnGrid) btnGrid.onclick = generateParamGrid;
   const btnRun = document.getElementById("pt-run-btn");
   if(btnRun) btnRun.onclick = runParamBatchTest;
+  initParamBatchQuickInsert();
+  initParamGridInputModes();
   
   // Bind Backtest button
   const btBtn = document.getElementById("bt-btn");
@@ -2412,6 +3162,7 @@ function initApp() {
   window.runSelector = runSelector;
   window.poolImportFromBacktest = poolImportFromBacktest;
   window.runSmartAsk = runSmartAsk;
+  window.cancelBatchTask = cancelBatchTask;
   
   setActiveView("scan"); // Default view
 }

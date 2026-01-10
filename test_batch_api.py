@@ -44,5 +44,27 @@ def test_batch_param_api():
     except Exception as e:
         print(f"Exception: {e}")
 
+def test_batch_aggregation_combo_top():
+    from core.scanner_runner import BatchAggregation
+
+    agg = BatchAggregation()
+    agg.update_from_result({"symbol": "A", "total_return": 0.10, "win_rate": 0.6, "__combo_label__": "C1", "__combo__": {"p": 1}})
+    agg.update_from_result({"symbol": "B", "total_return": 0.20, "win_rate": 0.7, "__combo_label__": "C1", "__combo__": {"p": 1}})
+    agg.update_from_result({"symbol": "C", "total_return": -0.05, "win_rate": 0.4, "__combo_label__": "C2", "__combo__": {"p": 2}})
+    d = agg.to_dict()
+
+    assert d["combo_top"][0]["combo_label"] == "C1"
+    assert d["combo_top"][0]["samples"] == 2
+    assert abs(d["combo_top"][0]["avg_return"] - 0.15) < 1e-6
+
+def test_batch_task_status_includes_grid_metadata():
+    from core.scanner_runner import BatchTaskManager
+
+    m = BatchTaskManager(max_tasks=2, ttl_seconds=3600)
+    st = m.create_task(total=10, grid_metadata={"combos": 3, "symbols": 2, "param_keys": ["a"]})
+    s = m.get_status(st.task_id)
+    assert s["grid_metadata"]["combos"] == 3
+    assert "progress" in s
+
 if __name__ == "__main__":
     test_batch_param_api()
