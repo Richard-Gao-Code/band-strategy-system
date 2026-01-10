@@ -170,5 +170,69 @@ def test_optimizer_manager_persists_history():
         assert row is not None
         assert isinstance(row.optimized_params, dict)
 
+
+def test_bayesian_optimizer_real_backtest_smoke():
+    from datetime import date, timedelta
+
+    import pytest
+
+    pytest.importorskip("skopt")
+
+    from core.event_engine import EventStrategy
+    from core.types import Bar, Order, Side
+    from core.optimization.optimizer_manager import OptimizerManager
+
+    class FakeProvider:
+        def __init__(self, symbol: str, bars: list[Bar]):
+            self.symbol = symbol
+            self._bars = bars
+
+        def get_bars(self, symbol: str):
+            if symbol == self.symbol:
+                return self._bars
+            return []
+
+    class BuyAfterStrategy(EventStrategy):
+        def __init__(self):
+            self.buy_after = 0
+
+        def on_close(self, i, frame, broker):
+            sym = next(iter(frame.bars.keys()), "")
+            if not sym:
+                return []
+            if i < int(self.buy_after):
+                return []
+            if broker.position_qty(sym) > 0:
+                return []
+            return [Order(symbol=sym, qty=100, side=Side.BUY, dt=frame.dt, reason="buy")]
+
+    symbol = "000001.SZ"
+    start = date(2023, 1, 2)
+    bars = []
+    px = 10.0
+    for i in range(80):
+        dt = start + timedelta(days=i)
+        if dt.weekday() >= 5:
+            continue
+        px = px * 1.001
+        bars.append(Bar(symbol=symbol, dt=dt, open=px, high=px * 1.01, low=px * 0.99, close=px, volume=1_000_000, index=len(bars)))
+
+    provider = FakeProvider(symbol=symbol, bars=bars)
+    manager = OptimizerManager()
+    opt = manager.create_optimizer(
+        optimizer_type="bayesian",
+        strategy_name="test_bayes_real",
+        param_space={"buy_after": {"min": 0, "max": 5, "type": "int"}},
+        data_provider=provider,
+        strategy_class=BuyAfterStrategy,
+        initial_cash=1000000.0,
+        benchmark_symbol=None,
+    )
+
+    res = asyncio.run(opt.optimize(n_iterations=5, objective="sharpe_ratio"))
+    assert res.success is True
+    assert isinstance(res.best_params, dict)
+    assert isinstance(res.best_score, float)
+
 if __name__ == "__main__":
     test_batch_param_api()

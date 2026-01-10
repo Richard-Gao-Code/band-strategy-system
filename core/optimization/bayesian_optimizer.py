@@ -1,13 +1,23 @@
-﻿"""贝叶斯优化器实现
+"""贝叶斯优化器实现
 基于scikit-optimize的高斯过程优化
 """
 
-import asyncio
-from typing import Dict, Any
+from __future__ import annotations
+
+import inspect
+from dataclasses import is_dataclass, replace
+from typing import Any, Dict, Type
+
 import numpy as np
 from skopt import gp_minimize
-from skopt.space import Real, Integer, Categorical
+from skopt.space import Categorical, Integer, Real
 from skopt.utils import use_named_args
+
+from ..types import BacktestConfig, BrokerConfig
+from ..event_engine import EventBacktestEngine
+from ..types import Bar
+from config.database import get_db
+from data.storage.repository import ParamPerformanceRepository
 
 from .base_optimizer import BaseOptimizer, OptimizationResult
 
@@ -15,8 +25,25 @@ from .base_optimizer import BaseOptimizer, OptimizationResult
 class BayesianOptimizer(BaseOptimizer):
     """贝叶斯优化器（高斯过程）"""
     
-    def __init__(self, strategy_name: str, param_space: Dict[str, Any]):
+    def __init__(
+        self,
+        strategy_name: str,
+        param_space: Dict[str, Any],
+        data_provider: Any,
+        strategy_class: Type,
+        initial_cash: float = 1_000_000.0,
+        benchmark_symbol: str | None = None,
+        commission_rate: float = 0.0003,
+        **kwargs,
+    ):
         super().__init__(strategy_name, param_space)
+        self.data_provider = data_provider
+        self.strategy_class = strategy_class
+        self.initial_cash = float(initial_cash)
+        self.benchmark_symbol = benchmark_symbol
+        self.commission_rate = float(commission_rate)
+        self.objective = "sharpe_ratio"
+        self._kwargs = dict(kwargs)
         self.skopt_space = self._convert_to_skopt_space(param_space)
         
     async def optimize(self, n_iterations: int = 50, objective: str = "sharpe_ratio") -> OptimizationResult:
@@ -30,7 +57,8 @@ class BayesianOptimizer(BaseOptimizer):
         Returns:
             OptimizationResult
         """
-        print(f"[贝叶斯优化] 开始: {self.strategy_name}, 目标: {objective}")
+        print(f"[贝叶斯优化器] 开始优化: {self.strategy_name}, 目标: {objective}")
+        self.objective = objective
         
         # 初始随机点数量（处理小规模迭代）
         if n_iterations <= 2:
@@ -41,7 +69,7 @@ class BayesianOptimizer(BaseOptimizer):
         try:
             # 执行贝叶斯优化
             result = gp_minimize(
-                func=self._objective_wrapper(objective),
+                func=self._objective_wrapper(),
                 dimensions=self.skopt_space,
                 n_calls=n_iterations,
                 n_initial_points=n_initial_points,
@@ -63,7 +91,7 @@ class BayesianOptimizer(BaseOptimizer):
             best_params = self._decode_params(result.x)
             best_score = -result.fun  # 转换回最大化
             
-            print(f"[贝叶斯优化] 完成: 最佳分数 = {best_score:.4f}")
+            print(f"[贝叶斯优化器] 完成: 最佳分数 = {best_score:.4f}")
             
             return OptimizationResult(
                 success=True,
@@ -80,7 +108,7 @@ class BayesianOptimizer(BaseOptimizer):
             )
             
         except Exception as e:
-            print(f"[贝叶斯优化] 错误: {e}")
+            print(f"[贝叶斯优化器] 错误: {e}")
             return OptimizationResult(
                 success=False,
                 best_params={},
@@ -122,47 +150,145 @@ class BayesianOptimizer(BaseOptimizer):
         
         return skopt_space
     
-    def _objective_wrapper(self, objective: str):
+    def _objective_wrapper(self):
         """创建目标函数包装器"""
         @use_named_args(dimensions=self.skopt_space)
         def objective_function(**params):
             """实际的目标函数（需要负号因为skopt是最小化）"""
-            # 这里应该调用策略评估器
-            # 暂时返回模拟分数
-            score = self._evaluate_params(params, objective)
+            score = self._evaluate_params(params)
             return -score  # skopt是最小化，所以我们取负
         
         return objective_function
     
-    def _evaluate_params(self, params: Dict[str, Any], objective: str) -> float:
-        """
-        评估参数性能（TODO: 集成真实策略评估）
-        目前返回模拟分数
-        """
-        # 模拟评估：基于参数计算一个分数
-        # 实际应该调用策略引擎进行回测
-        
-        # 简单模拟：假设某些参数组合更好
-        base_score = 1.0
-        
-        # 模拟ma_period的影响
-        if 'ma_period' in params:
-            ma_val = params['ma_period']
-            if 10 <= ma_val <= 30:
-                base_score += 0.3
-            elif 5 <= ma_val < 10 or 30 < ma_val <= 50:
-                base_score += 0.1
-        
-        # 模拟stop_loss的影响
-        if 'stop_loss' in params:
-            stop_loss = params['stop_loss']
-            if 0.01 <= stop_loss <= 0.03:
-                base_score += 0.2
-        
-        # 添加一些随机性（模拟真实评估的噪声）
-        noise = np.random.normal(0, 0.1)
-        
-        return max(0.1, base_score + noise)
+    def _evaluate_params(self, params: Dict[str, Any]) -> float:
+        """真实回测评估参数组合"""
+        try:
+            symbol = getattr(self.data_provider, "symbol", None)
+            symbol = str(symbol).strip() if symbol is not None else ""
+            if not symbol:
+                symbol = "000001.SZ"
+
+            bars: list[Bar] | None = None
+            if hasattr(self.data_provider, "get_bars") and callable(getattr(self.data_provider, "get_bars")):
+                bars = self.data_provider.get_bars(symbol)
+            elif isinstance(self.data_provider, list):
+                bars = self.data_provider
+            elif isinstance(self.data_provider, dict):
+                v = self.data_provider.get(symbol)
+                if isinstance(v, list):
+                    bars = v
+
+            if not bars:
+                return -float("inf")
+
+            benchmark_bars = None
+            if self.benchmark_symbol:
+                if hasattr(self.data_provider, "get_bars") and callable(getattr(self.data_provider, "get_bars")):
+                    benchmark_bars = self.data_provider.get_bars(self.benchmark_symbol)
+
+            cfg = BacktestConfig(
+                initial_cash=self.initial_cash,
+                broker=BrokerConfig(
+                    commission_rate=self.commission_rate,
+                    slippage_bps=2.0,
+                    min_commission=5.0,
+                    stamp_duty_rate=0.0005,
+                    slippage_rate=0.0001,
+                ),
+                benchmark_symbol=self.benchmark_symbol,
+            )
+
+            strategy = self._build_strategy(bars=bars, benchmark_bars=benchmark_bars, params=params)
+            engine = EventBacktestEngine(config=cfg)
+            result = engine.run(bars=bars, strategy=strategy, benchmark_bars=benchmark_bars)
+
+            m = result.metrics
+            if self.objective == "sharpe_ratio":
+                score = float(m.sharpe) if m.sharpe is not None else -float("inf")
+            elif self.objective == "total_return":
+                score = float(m.total_return) if m.total_return is not None else -float("inf")
+            elif self.objective == "win_rate":
+                score = float(m.win_rate) if m.win_rate is not None else 0.0
+            else:
+                score = float(m.sharpe) if m.sharpe is not None else -float("inf")
+
+            try:
+                with get_db() as db:
+                    ParamPerformanceRepository.save(
+                        db,
+                        {
+                            "strategy_name": self.strategy_name,
+                            "param_combo": dict(params),
+                            "metrics": {
+                                "total_return": m.total_return,
+                                "cagr": m.cagr,
+                                "max_drawdown": m.max_drawdown,
+                                "sharpe": m.sharpe,
+                                "win_rate": m.win_rate,
+                                "trade_count": m.trade_count,
+                                "final_equity": m.final_equity,
+                            },
+                            "sample_size": len(bars),
+                            "sharpe_ratio": m.sharpe,
+                            "win_rate": m.win_rate,
+                            "max_drawdown": m.max_drawdown,
+                            "stability_score": 0.0,
+                        },
+                    )
+            except Exception:
+                pass
+
+            return score
+        except Exception:
+            return -float("inf")
+
+    def _build_strategy(self, bars: list[Bar], benchmark_bars: list[Bar] | None, params: Dict[str, Any]):
+        cls = self.strategy_class
+        sig = inspect.signature(cls)
+        call_kwargs: dict[str, Any] = {}
+        if "bars" in sig.parameters:
+            call_kwargs["bars"] = bars
+        if "index_bars" in sig.parameters:
+            call_kwargs["index_bars"] = benchmark_bars
+
+        if "config" in sig.parameters:
+            call_kwargs["config"] = None
+
+        try:
+            base_strategy = cls(**call_kwargs)
+        except Exception:
+            try:
+                base_strategy = cls(bars)
+            except Exception:
+                base_strategy = cls()
+
+        cfg = getattr(base_strategy, "config", None)
+        cfg_overrides: dict[str, Any] = {}
+        if cfg is not None and is_dataclass(cfg):
+            cfg_fields = {f.name for f in getattr(cfg, "__dataclass_fields__", {}).values()} if hasattr(cfg, "__dataclass_fields__") else set()
+            for k, v in params.items():
+                if k in cfg_fields:
+                    cfg_overrides[k] = v
+
+        if cfg_overrides and cfg is not None and is_dataclass(cfg):
+            new_cfg = replace(cfg, **cfg_overrides)
+            if "config" in sig.parameters:
+                call_kwargs["config"] = new_cfg
+                try:
+                    return cls(**call_kwargs)
+                except Exception:
+                    setattr(base_strategy, "config", new_cfg)
+            else:
+                setattr(base_strategy, "config", new_cfg)
+
+        for k, v in params.items():
+            if hasattr(base_strategy, k):
+                try:
+                    setattr(base_strategy, k, v)
+                except Exception:
+                    pass
+
+        return base_strategy
     
     def _decode_params(self, skopt_params: list) -> Dict[str, Any]:
         """将skopt参数解码回我们的格式"""
