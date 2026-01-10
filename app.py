@@ -1247,7 +1247,7 @@ async def api_performance_history(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(50, ge=1, le=200),
 ):
-    cutoff_date = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+    cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     with get_db() as db:
         results = (
             db.query(ParamPerformance)
