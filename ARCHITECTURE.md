@@ -835,3 +835,91 @@ def _get_channel_lines(
    - 替换`_evaluate_params()`中的模拟评估
    - 调用现有策略引擎进行回测
    - 保持接口兼容性
+
+## 第15章：策略组合与风险管理（E阶段）
+
+### 15.1 阶段目标
+实现多策略智能资金分配和风险控制，提升整体投资组合的收益风险比。
+
+### 15.2 核心功能架构
+E阶段在现有“策略回测/优化/落库（D阶段）”基础上，引入面向投资组合的资金分配与风险约束，形成从“单策略参数最优”到“多策略权重最优”的闭环。
+
+四层架构划分如下：
+- **数据层**：复用现有参数性能数据库（参数组合绩效、优化历史、回测指标），并提供统一的“策略级收益/风险序列”读取接口。
+- **组合层**：负责将多个策略的历史绩效聚合为组合优化所需的输入（预期收益、协方差/相关矩阵、策略约束与过滤）。
+- **优化与风控层**：实现权重优化、风险预算、约束求解与稳健化（例如权重上限、行业/风格暴露、最大回撤/波动率目标、CVaR 等）。
+- **接口与编排层**：通过 FastAPI 暴露组合优化/再平衡能力，复用现有任务编排与异步执行方式，输出最优权重、风险指标与再平衡建议。
+
+```mermaid
+flowchart TD
+  A[数据层<br/>ParamPerformance/OptimizationHistory/回测结果] --> B[组合层<br/>收益与协方差估计/约束建模]
+  B --> C[优化与风控层<br/>权重优化/风险预算/稳健化]
+  C --> D[接口与编排层<br/>FastAPI API/任务调度/结果落库]
+  D --> E[消费端<br/>Web UI/自动化再平衡/报表]
+```
+
+### 15.3 技术选型
+#### 优化算法库
+- **主要候选**：PyPortfolioOpt（基于 scikit-learn 生态，覆盖均值-方差、最大夏普、最小方差等常用模型）
+- **备选方案**：cvxpy（更高灵活性，便于表达复杂约束与自定义目标）
+- **风险计算**：自定义模型 + empyrical（风险/绩效指标计算与校验）
+
+#### 数据接口
+- **输入**：策略历史绩效（收益序列、回撤、胜率等）、风险偏好、约束条件
+- **输出**：最优权重、风险指标、再平衡建议
+- **存储**：扩展现有参数性能数据库（新增组合优化结果与再平衡记录，不改变现有表的读写兼容性）
+
+### 15.4 集成方案
+#### 与D阶段系统集成
+1. **数据流**：组合层从现有落库数据中抽取策略级历史表现，生成优化输入（预期收益/风险矩阵/约束）。
+2. **控制流**：组合优化任务通过 API 触发，复用现有的任务编排与异步执行方式，避免阻塞 Web 请求线程。
+3. **API扩展**：在现有 `/api/performance/*` 与 `/api/optimize/*` 能力基础上，新增组合优化与再平衡相关端点，形成“单策略优化 -> 策略组合配置”的上层能力。
+
+#### 接口设计
+```python
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+
+class PortfolioOptimizationRequest(BaseModel):
+    strategy_ids: List[str]
+    risk_appetite: Literal["conservative", "balanced", "aggressive"]
+    constraints: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PortfolioOptimizationResult(BaseModel):
+    optimal_weights: Dict[str, float]
+    expected_return: float
+    expected_risk: float
+    risk_metrics: Dict[str, float] = Field(default_factory=dict)
+    rebalance_suggestion: Optional[Dict[str, float]] = None
+```
+
+### 15.5 开发路线图
+#### 第1周：基础架构
+- 技术调研与选型
+- 核心算法原型
+- 基础数据接口
+
+#### 第2周：风险模型
+- 风险度量实现
+- 约束条件处理
+- 绩效归因分析
+
+#### 第3周：系统集成
+- 与现有优化系统对接
+- API接口开发
+- 用户界面设计
+
+#### 第4周：测试优化
+- 全面测试验证
+- 性能优化
+- 文档完善
+
+### 15.6 成功标准
+1. **功能完整性**：支持至少5种优化算法
+2. **性能要求**：100个策略优化时间 < 30秒
+3. **风险控制**：完整的风险指标体系和监控
+4. **集成度**：与现有系统无缝对接
+5. **可用性**：清晰的API和用户文档
