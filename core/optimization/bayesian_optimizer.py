@@ -1,4 +1,4 @@
-"""贝叶斯优化器实现
+﻿"""贝叶斯优化器实现
 基于scikit-optimize的高斯过程优化
 """
 
@@ -179,7 +179,7 @@ class BayesianOptimizer(BaseOptimizer):
                     bars = v
 
             if not bars:
-                return -float("inf")
+                return -10.0
 
             benchmark_bars = None
             if self.benchmark_symbol:
@@ -204,13 +204,13 @@ class BayesianOptimizer(BaseOptimizer):
 
             m = result.metrics
             if self.objective == "sharpe_ratio":
-                score = float(m.sharpe) if m.sharpe is not None else -float("inf")
+                score = float(m.sharpe) if m.sharpe is not None else -10.0
             elif self.objective == "total_return":
-                score = float(m.total_return) if m.total_return is not None else -float("inf")
+                score = float(m.total_return) if m.total_return is not None else -0.5
             elif self.objective == "win_rate":
                 score = float(m.win_rate) if m.win_rate is not None else 0.0
             else:
-                score = float(m.sharpe) if m.sharpe is not None else -float("inf")
+                score = float(m.sharpe) if m.sharpe is not None else -10.0
 
             try:
                 with get_db() as db:
@@ -240,7 +240,7 @@ class BayesianOptimizer(BaseOptimizer):
 
             return score
         except Exception:
-            return -float("inf")
+            return -10.0
 
     def _build_strategy(self, bars: list[Bar], benchmark_bars: list[Bar] | None, params: Dict[str, Any]):
         cls = self.strategy_class
