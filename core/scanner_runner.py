@@ -523,13 +523,56 @@ def backtest_channel_hf_for_symbol_path(
             d["symbol"] = symbol
             d["beg"] = beg
             d["end"] = end
+            try:
+                from dataclasses import asdict
+
+                d["params"] = asdict(hcfg)
+            except Exception:
+                try:
+                    d["params"] = dict(getattr(hcfg, "__dict__", {}) or {})
+                except Exception:
+                    d["params"] = {}
             return d
 
         m = result.metrics
 
         dd_dur = None
+        dd_date = None
         if m.max_drawdown_detail is not None:
             dd_dur = m.max_drawdown_detail.drawdown_duration
+            dd_date = m.max_drawdown_detail.drawdown_end_date
+
+        avg_hold_days = None
+        try:
+            holds = [int(getattr(t, "holding_days", 0) or 0) for t in (result.trades or [])]
+            holds = [x for x in holds if x > 0]
+            avg_hold_days = (sum(holds) / len(holds)) if holds else None
+        except Exception:
+            avg_hold_days = None
+
+        max_win_streak = 0
+        max_loss_streak = 0
+        try:
+            cur_win = 0
+            cur_loss = 0
+            for pnl in (m.all_trade_pnls or []):
+                v = float(pnl)
+                if v > 0:
+                    cur_win += 1
+                    cur_loss = 0
+                elif v < 0:
+                    cur_loss += 1
+                    cur_win = 0
+                else:
+                    cur_win = 0
+                    cur_loss = 0
+                if cur_win > max_win_streak:
+                    max_win_streak = cur_win
+                if cur_loss > max_loss_streak:
+                    max_loss_streak = cur_loss
+        except Exception:
+            max_win_streak = 0
+            max_loss_streak = 0
 
         calc_score = config.get("calc_score", False)
         if isinstance(calc_score, str):
@@ -598,6 +641,7 @@ def backtest_channel_hf_for_symbol_path(
             "annualized_return": m.cagr,
             "max_drawdown": m.max_drawdown,
             "drawdown_duration": dd_dur,
+            "max_drawdown_date": dd_date,
             "sharpe_ratio": m.sharpe,
             "sortino_ratio": m.sortino,
             "calmar_ratio": m.calmar,
@@ -607,6 +651,9 @@ def backtest_channel_hf_for_symbol_path(
             "largest_loss": m.largest_loss,
             "win_rate": m.win_rate,
             "trades": m.trade_count,
+            "avg_hold_days": avg_hold_days,
+            "max_win_streak": int(max_win_streak),
+            "max_loss_streak": int(max_loss_streak),
             "final_equity": m.final_equity,
             "anomalies": len(result.data_anomalies or []),
             "score": score,
@@ -697,11 +744,10 @@ def scan_channel_hf_for_symbol_path(
             threshold_dt = bars[-recent_n].dt
 
         latest_signal_log: dict[str, Any] | None = None
+        latest_any_log: dict[str, Any] | None = None
         if strategy.signal_logs:
             for log in reversed(strategy.signal_logs):
                 if log.get("symbol") != symbol:
-                    continue
-                if log.get("final_signal") not in (1, -1):
                     continue
                 dt_str = str(log.get("date") or "")
                 try:
@@ -710,13 +756,27 @@ def scan_channel_hf_for_symbol_path(
                     continue
                 if dt_val < threshold_dt:
                     continue
-                latest_signal_log = log
-                break
+                if latest_any_log is None:
+                    latest_any_log = log
+                if log.get("final_signal") in (1, -1):
+                    latest_signal_log = log
+                    break
+        if latest_signal_log is None:
+            latest_signal_log = latest_any_log
+
+        default_env = {
+            "symbol": symbol,
+            "date": last_date.isoformat(),
+            "slope_norm": 0.0,
+            "channel_height": 0.0,
+            "vol_ratio": 1.0,
+            "final_signal": 0,
+        }
 
         return {
             "symbol": symbol,
             "last_date": last_date.isoformat(),
-            "env": latest_signal_log or {},
+            "env": latest_signal_log or default_env,
             "signals": [latest_signal_log] if latest_signal_log else [],
         }
 

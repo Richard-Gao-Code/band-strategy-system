@@ -170,6 +170,56 @@ def test_optimizer_manager_persists_history():
         assert row is not None
         assert isinstance(row.optimized_params, dict)
 
+def test_portfolio_optimize_api_persists_history():
+    from config.database import init_db, get_db
+    from data.storage.models import OptimizationHistory
+
+    init_db()
+
+    payload = {
+        "strategy_performances": [
+            {"strategy_id": "s1", "returns": [0.01, 0.02, -0.005, 0.01, 0.0, 0.015]},
+            {"strategy_id": "s2", "returns": [0.005, 0.01, 0.0, 0.006, -0.002, 0.007]},
+            {"strategy_id": "s3", "returns": [-0.002, 0.003, 0.004, -0.001, 0.002, 0.001]},
+        ],
+        "optimization_method": "min_variance",
+        "constraints": {"engine": "basic", "risk_free_rate": 0.0, "frequency": 252, "weight_bounds": [0.0, 1.0]},
+    }
+
+    r = client.post("/api/portfolio/optimize", json=payload)
+    assert r.status_code == 200
+    j = r.json()
+    assert j.get("success") is True
+    data = j.get("data") or {}
+
+    weights = data.get("optimal_weights") or {}
+    assert isinstance(weights, dict) and len(weights) == 3
+    s = float(sum(float(v) for v in weights.values()))
+    assert abs(s - 1.0) < 1e-6
+    assert all(0.0 - 1e-9 <= float(v) <= 1.0 + 1e-9 for v in weights.values())
+
+    risk = data.get("risk_metrics") or {}
+    assert isinstance(risk, dict)
+    assert "sharpe" in risk
+
+    stats = data.get("optimization_stats") or {}
+    assert isinstance(stats, dict)
+    assert stats.get("method") == "min_variance"
+    assert isinstance(stats.get("elapsed_ms"), int)
+
+    with get_db() as db:
+        row = (
+            db.query(OptimizationHistory)
+            .filter(
+                OptimizationHistory.strategy_name == "portfolio",
+                OptimizationHistory.optimization_type == "min_variance",
+            )
+            .order_by(OptimizationHistory.optimization_date.desc())
+            .first()
+        )
+        assert row is not None
+        assert isinstance(row.optimized_params, dict)
+
 
 def test_bayesian_optimizer_real_backtest_smoke():
     from datetime import date, timedelta

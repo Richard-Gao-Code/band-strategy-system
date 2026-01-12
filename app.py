@@ -349,6 +349,12 @@ async def lifespan(app: FastAPI):
     max_workers = max(1, min(max_workers, 64))
     executor_max_workers = int(max_workers)
     executor = ProcessPoolExecutor(max_workers=max_workers)
+    try:
+        app.state.io_executor = io_executor
+        app.state.executor = executor
+        app.state.batch_task_manager = batch_task_manager
+    except Exception:
+        pass
 
     yield
 
@@ -364,6 +370,10 @@ if not static_dir.exists():
     print(f"Warning: static directory {static_dir} does not exist, creating it.")
     static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+from api.portfolio import router as portfolio_router
+
+app.include_router(portfolio_router)
 
 
 class SelectorReq(BaseModel):
@@ -418,15 +428,42 @@ async def api_selector(req: SelectorReq):
 PRESETS_DIR = Path(__file__).parent / "presets"
 ACTIVE_PRESET_FILE = PRESETS_DIR / "active_preset.txt"
 CONFIG_PATH = Path(__file__).parent / "config.json"
+PRESET_HISTORY_DIR = PRESETS_DIR / ".history"
 
 PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+PRESET_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+CFG_KEY_ALIAS: dict[str, str] = {
+    "min_height": "min_channel_height",
+    "min_room": "min_mid_room",
+    "panic_eps": "stop_loss_panic_eps",
+    "max_hold_days": "max_holding_days",
+    "trend_ma": "trend_ma_period",
+    "index_ma": "index_trend_ma_period",
+    "break_eps": "channel_break_eps",
+    "min_profit": "min_mid_profit_pct",
+    "min_rr": "min_rr_to_mid",
+}
+
+
+def normalize_cfg_keys(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for k, v in data.items():
+        kk = str(k).strip()
+        if not kk:
+            continue
+        out[CFG_KEY_ALIAS.get(kk, kk)] = v
+    return out
+
 
 def get_config_dict() -> dict[str, Any]:
     try:
         if CONFIG_PATH.exists():
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 v = json.load(f)
-            return v if isinstance(v, dict) else {}
+            return normalize_cfg_keys(v)
     except Exception:
         pass
     return {}
@@ -434,16 +471,46 @@ def get_config_dict() -> dict[str, Any]:
 
 DEFAULT_PRESET_ORDER = ["默认", "保守", "激进"]
 
+FACTORY_CONFIG: dict[str, Any] = {
+    "channel_period": 20,
+    "min_channel_height": 0.05,
+    "min_mid_room": 0.015,
+    "slope_abs_max": 0.01,
+    "min_slope_norm": -0.002,
+    "buy_touch_eps": 0.005,
+    "sell_trigger_eps": 0.005,
+    "sell_target_mode": "mid_up",
+    "entry_fill_eps": 0.002,
+    "exit_fill_eps": 0.002,
+    "stop_loss_mul": 0.97,
+    "stop_loss_panic_eps": 0.02,
+    "max_holding_days": 20,
+    "cooling_period": 5,
+    "vol_shrink_max": 0.9,
+    "volatility_ratio_max": 1.0,
+    "trend_ma_period": 0,
+    "channel_break_eps": 0.02,
+    "scan_recent_days": 20,
+    "pivot_confirm_days": 3,
+    "pivot_no_new_low_tol": 0.01,
+    "pivot_rebound_amp": 0.02,
+    "index_trend_ma_period": 0,
+    "min_mid_profit_pct": 0.0,
+    "min_rr_to_mid": 0.0,
+    "max_positions": 5,
+    "max_position_pct": 0.10,
+}
+
 
 def _default_presets() -> dict[str, dict[str, Any]]:
-    base = get_config_dict()
+    base = dict(FACTORY_CONFIG)
     return {
         "默认": dict(base),
         "保守": {
             **base,
             "vol_shrink_min": 1.04,
             "vol_shrink_max": 1.10,
-            "min_channel_height": 0.06,
+            "min_height": 0.06,
             "max_positions": 3,
             "max_position_pct": 0.08,
         },
@@ -451,7 +518,7 @@ def _default_presets() -> dict[str, dict[str, Any]]:
             **base,
             "vol_shrink_min": 0.98,
             "vol_shrink_max": 1.20,
-            "min_channel_height": 0.04,
+            "min_height": 0.04,
             "max_positions": 8,
             "max_position_pct": 0.12,
         },
@@ -475,14 +542,73 @@ def _load_preset_config(name: str) -> dict[str, Any] | None:
         try:
             with open(target, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return data if isinstance(data, dict) else {}
+            return normalize_cfg_keys(data)
         except Exception:
             return None
     defaults = _default_presets()
     if nm in defaults:
         data = defaults.get(nm) or {}
-        return data if isinstance(data, dict) else {}
+        return normalize_cfg_keys(data)
     return None
+
+
+def _safe_preset_name(name: str) -> str:
+    nm = (name or "").strip()
+    if not nm:
+        return ""
+    nm = re.sub(r"[^\w\u4e00-\u9fff.\-]+", "_", nm, flags=re.UNICODE)
+    nm = nm.strip("._-")
+    return nm
+
+
+def _preset_history_dir(name: str) -> Path:
+    nm = _safe_preset_name(name)
+    return PRESET_HISTORY_DIR / nm if nm else PRESET_HISTORY_DIR / "_"
+
+
+def _preset_version_stamp() -> str:
+    return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _save_preset_version(name: str, cfg: dict[str, Any]) -> str:
+    nm = (name or "").strip()
+    if not nm:
+        return ""
+    d = _preset_history_dir(nm)
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = _preset_version_stamp()
+    target = d / f"{stamp}.json"
+    with open(target, "w", encoding="utf-8") as f:
+        json.dump(cfg if cfg is not None else {}, f, ensure_ascii=False, indent=4)
+    return stamp
+
+
+def _list_preset_versions(name: str) -> list[str]:
+    nm = (name or "").strip()
+    if not nm:
+        return []
+    d = _preset_history_dir(nm)
+    if not d.exists():
+        return []
+    files = sorted(d.glob("*.json"), key=lambda p: p.stem, reverse=True)
+    return [p.stem for p in files]
+
+
+def _load_preset_version(name: str, version: str) -> dict[str, Any] | None:
+    nm = (name or "").strip()
+    ver = (version or "").strip()
+    if not nm or not ver:
+        return None
+    d = _preset_history_dir(nm)
+    target = d / f"{ver}.json"
+    if not target.exists():
+        return None
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return normalize_cfg_keys(data)
+    except Exception:
+        return None
 
 
 def save_config_dict(data: Any) -> bool:
@@ -551,6 +677,7 @@ def api_save_preset(req: PresetReq):
         return {"ok": False, "msg": "名称不能为空"}
 
     current = req.cfg if (req.cfg and isinstance(req.cfg, dict)) else get_config_dict()
+    current = normalize_cfg_keys(current)
     if not current:
         return {"ok": False, "msg": "当前配置为空，无法保存"}
 
@@ -558,7 +685,12 @@ def api_save_preset(req: PresetReq):
     try:
         with open(target, "w", encoding="utf-8") as f:
             json.dump(current, f, ensure_ascii=False, indent=4)
-        return {"ok": True, "msg": f"已保存预设: {name}"}
+        ver = ""
+        try:
+            ver = _save_preset_version(name, current)
+        except Exception:
+            ver = ""
+        return {"ok": True, "msg": f"已保存预设: {name}", "version": ver}
     except Exception as e:
         return {"ok": False, "msg": str(e)}
 
@@ -573,13 +705,14 @@ def api_load_preset(req: PresetReq):
     try:
         # If cfg is provided in request, use it and update the preset file too
         if req.cfg and isinstance(req.cfg, dict):
-            data = req.cfg
+            data = normalize_cfg_keys(req.cfg)
             with open(target, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         else:
             data = _load_preset_config(name)
             if data is None:
                 return {"ok": False, "msg": f"预设 {name} 不存在"}
+            data = normalize_cfg_keys(data)
 
         if save_config_dict(data):
             try:
@@ -615,6 +748,50 @@ def api_delete_preset(req: PresetReq):
         return {"ok": False, "msg": str(e)}
 
 # ---- End Preset APIs ----
+
+
+@app.get("/api/presets/versions")
+def api_preset_versions(name: str = ""):
+    nm = (name or "").strip()
+    if not nm:
+        return {"ok": False, "msg": "名称不能为空", "versions": []}
+    return {"ok": True, "versions": _list_preset_versions(nm)}
+
+
+class PresetRollbackReq(BaseModel):
+    name: str
+    version: str
+
+
+@app.post("/api/presets/rollback")
+def api_preset_rollback(req: PresetRollbackReq):
+    name = (req.name or "").strip()
+    version = (req.version or "").strip()
+    if not name:
+        return {"ok": False, "msg": "名称不能为空"}
+    if not version:
+        return {"ok": False, "msg": "版本不能为空"}
+
+    data = _load_preset_version(name, version)
+    if data is None:
+        return {"ok": False, "msg": f"版本不存在: {version}"}
+
+    target = PRESETS_DIR / f"{name}.json"
+    try:
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
+
+    if save_config_dict(data):
+        try:
+            from core.analyzer import reload_config
+            reload_config()
+        except Exception:
+            pass
+        _set_active_preset_name(name)
+        return {"ok": True, "msg": f"已回溯: {name}@{version}", "config": data}
+    return {"ok": False, "msg": "写入config.json失败"}
 
 @app.get("/")
 def index() -> Any:

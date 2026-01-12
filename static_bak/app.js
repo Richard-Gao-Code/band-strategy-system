@@ -4,6 +4,160 @@
 /* -------------------------------------------------------------------------- */
 
 const PARAM_DEFINITIONS = {
+  "channel_period": {
+    name: "通道周期",
+    type: "整数 (Days)",
+    default: "20",
+    range: "10 - 120",
+    unit: "天",
+    desc: "计算通道（中轨/上下轨）的回看周期。",
+    logic: "周期越大越平滑、信号越少；周期越小越敏感、信号越多。",
+    example: "20 / 30 / 60",
+    suggestion: "短线更小；中线更大。"
+  },
+  "buy_touch_eps": {
+    name: "买入容差",
+    type: "数值 (Ratio)",
+    default: "0.005",
+    range: "0.0 - 0.05",
+    unit: "比例",
+    desc: "触及下轨买入的容差，用于允许略高于下轨的触发。",
+    logic: "触发价 ≈ 下轨 * (1 + buy_touch_eps)。",
+    example: "0.005 (0.5%)",
+    suggestion: "调大: 更容易触发；调小: 更贴近下轨。"
+  },
+  "sell_trigger_eps": {
+    name: "卖出触发",
+    type: "数值 (Ratio)",
+    default: "0.005",
+    range: "0.0 - 0.05",
+    unit: "比例",
+    desc: "卖出触发的容差，用于提高/降低卖出目标价。",
+    logic: "与 sell_target_mode 配合，按中轨/上轨计算目标价并加减该比例。",
+    example: "0.005 (0.5%)",
+    suggestion: "调大: 目标更远；调小: 更容易止盈/止损。"
+  },
+  "sell_target_mode": {
+    name: "卖出目标模式",
+    type: "枚举",
+    default: "mid_up",
+    range: "mid_up / mid_down / upper_down",
+    unit: "",
+    desc: "选择用哪条线（中轨/上轨）来计算卖出目标价。",
+    logic: "mid_up: 中轨上浮；mid_down: 中轨下浮；upper_down: 上轨下浮。",
+    example: "mid_up",
+    suggestion: "中轨上浮更稳健；上轨下浮更激进。"
+  },
+  "channel_break_eps": {
+    name: "破位阈值",
+    type: "数值 (Ratio)",
+    default: "0.02",
+    range: "0.0 - 0.10",
+    unit: "比例",
+    desc: "判断通道破位/止损的阈值。",
+    logic: "通常以价格相对通道线的偏离幅度进行判定。",
+    example: "0.02 (2%)",
+    suggestion: "调大: 更宽松；调小: 更敏感。"
+  },
+  "entry_fill_eps": {
+    name: "买入滑点",
+    type: "数值 (Ratio)",
+    default: "0.002",
+    range: "0.0 - 0.02",
+    unit: "比例",
+    desc: "模拟买入成交价偏离的滑点。",
+    logic: "成交价≈信号价*(1+entry_fill_eps)。",
+    example: "0.002 (0.2%)",
+    suggestion: "越大越保守。"
+  },
+  "exit_fill_eps": {
+    name: "卖出滑点",
+    type: "数值 (Ratio)",
+    default: "0.002",
+    range: "0.0 - 0.02",
+    unit: "比例",
+    desc: "模拟卖出成交价偏离的滑点。",
+    logic: "成交价≈信号价*(1-exit_fill_eps)。",
+    example: "0.002 (0.2%)",
+    suggestion: "越大越保守。"
+  },
+  "stop_loss_mul": {
+    name: "止损倍数",
+    type: "数值 (Ratio)",
+    default: "0.97",
+    range: "0.80 - 1.00",
+    unit: "倍数",
+    desc: "止损价相对买入价的倍率。",
+    logic: "止损价≈买入价*stop_loss_mul。",
+    example: "0.97 (约-3%)",
+    suggestion: "调小: 止损更紧；调大: 止损更松。"
+  },
+  "stop_loss_on_close": {
+    name: "止损按收盘",
+    type: "布尔 (Yes/No)",
+    default: "true",
+    range: "true / false",
+    unit: "",
+    desc: "是否使用收盘价作为止损判定与成交基准。",
+    logic: "启用后，止损更贴近收盘执行逻辑。",
+    example: "true",
+    suggestion: "回测一致性建议启用。"
+  },
+  "stop_loss_panic_eps": {
+    name: "恐慌阈值",
+    type: "数值 (Ratio)",
+    default: "0.02",
+    range: "0.0 - 0.20",
+    unit: "比例",
+    desc: "极端行情下的快速止损阈值。",
+    logic: "当满足更极端的破位条件时触发更快退出。",
+    example: "0.02 (2%)",
+    suggestion: "调大: 更难触发；调小: 更容易触发。"
+  },
+  "max_holding_days": {
+    name: "最大持仓天数",
+    type: "整数 (Days)",
+    default: "20",
+    range: "1 - 200",
+    unit: "天",
+    desc: "持仓超过该天数后触发退出逻辑。",
+    logic: "用于限制资金占用与降低持仓拖累。",
+    example: "20",
+    suggestion: "周期策略可适当增大。"
+  },
+  "cooling_period": {
+    name: "冷却期",
+    type: "整数 (Days)",
+    default: "5",
+    range: "0 - 60",
+    unit: "天",
+    desc: "卖出后等待若干天才允许再次买入。",
+    logic: "减少频繁进出与噪声交易。",
+    example: "5",
+    suggestion: "震荡市可适当调大。"
+  },
+  "slope_abs_max": {
+    name: "斜率上限",
+    type: "数值 (Slope)",
+    default: "0.01",
+    range: "0.0 - 0.10",
+    unit: "归一化",
+    desc: "限制通道中轨斜率的绝对值上限。",
+    logic: "abs(slope_norm) ≤ slope_abs_max。",
+    example: "0.01",
+    suggestion: "调小: 更严格过滤趋势过强；调大: 更宽松。"
+  },
+  "min_slope_norm": {
+    name: "归一斜率下限",
+    type: "数值 (Slope)",
+    default: "-1.0",
+    range: "-1.0 - 0.0",
+    unit: "归一化",
+    desc: "限制中轨斜率的下限（过于下行的通道不参与）。",
+    logic: "slope_norm ≥ min_slope_norm。",
+    example: "-0.002",
+    suggestion: "调大: 更严格排除下行；调小: 更宽松。"
+  },
   "vol_shrink_min": {
     name: "最小缩量比例",
     type: "数值 (Ratio)",
@@ -58,8 +212,251 @@ const PARAM_DEFINITIONS = {
     logic: "(收盘 - 下轨) / (上轨 - 下轨) ≤ 该值。",
     example: "0.5 (收盘价必须在通道下半区)",
     suggestion: "调高: 允许追高；调低: 只在底部区域买入。"
+  },
+  "min_mid_room": {
+    name: "中轨空间",
+    type: "数值 (Ratio)",
+    default: "0.015",
+    range: "0.0 - 0.20",
+    unit: "比例",
+    desc: "要求中轨附近留出一定空间，过滤拥挤通道。",
+    logic: "mid_room ≥ min_mid_room。",
+    example: "0.015 (1.5%)",
+    suggestion: "调大: 更严格；调小: 更宽松。"
+  },
+  "min_mid_profit_pct": {
+    name: "最小利润",
+    type: "数值 (Ratio)",
+    default: "0.0",
+    range: "0.0 - 0.50",
+    unit: "比例",
+    desc: "盈利过滤阈值，用于限制最低盈利要求。",
+    logic: "利润率 ≥ min_mid_profit_pct。",
+    example: "0.02 (2%)",
+    suggestion: "调大: 更严格；调小: 更宽松。"
+  },
+  "min_rr_to_mid": {
+    name: "最小风险收益比",
+    type: "数值 (RR)",
+    default: "0.0",
+    range: "0.0 - 10.0",
+    unit: "倍",
+    desc: "风险收益比过滤阈值。",
+    logic: "RR ≥ min_rr_to_mid。",
+    example: "1.5",
+    suggestion: "调大: 更严格；调小: 更宽松。"
+  },
+  "scan_recent_days": {
+    name: "扫描天数",
+    type: "整数 (Days)",
+    default: "1",
+    range: "1 - 60",
+    unit: "天",
+    desc: "扫描时只关注最近 N 天内的信号/日志。",
+    logic: "用于控制扫描窗口，避免过旧信号。",
+    example: "1 / 5 / 20",
+    suggestion: "短线用小；复盘用大。"
+  },
+  "require_index_condition": {
+    name: "指数确认",
+    type: "布尔 (Yes/No)",
+    default: "true",
+    range: "true / false",
+    unit: "",
+    desc: "是否要求指数条件满足才允许买入。",
+    logic: "启用后更保守，过滤指数环境不佳时的信号。",
+    example: "true",
+    suggestion: "保守策略建议启用。"
+  },
+  "index_bear_exit": {
+    name: "熊市强退",
+    type: "布尔 (Yes/No)",
+    default: "true",
+    range: "true / false",
+    unit: "",
+    desc: "当指数处于熊市判定时是否强制退出。",
+    logic: "用于降低系统性风险暴露。",
+    example: "true",
+    suggestion: "保守策略建议启用。"
+  },
+  "fill_at_close": {
+    name: "收盘成交",
+    type: "布尔 (Yes/No)",
+    default: "true",
+    range: "true / false",
+    unit: "",
+    desc: "是否用收盘价执行成交。",
+    logic: "启用后更贴近收盘策略回测。",
+    example: "true",
+    suggestion: "回测一致性建议启用。"
+  },
+  "trend_ma_period": {
+    name: "趋势均线",
+    type: "整数 (Days)",
+    default: "0",
+    range: "0 - 250",
+    unit: "天",
+    desc: "趋势均线周期，0 表示不启用。",
+    logic: "用于过滤趋势不符合的标的。",
+    example: "0 / 60 / 120",
+    suggestion: "周期越大越平滑。"
+  },
+  "index_trend_ma_period": {
+    name: "指数均线",
+    type: "整数 (Days)",
+    default: "0",
+    range: "0 - 250",
+    unit: "天",
+    desc: "指数趋势均线周期，0 表示不启用。",
+    logic: "用于指数环境趋势过滤。",
+    example: "0 / 20 / 60",
+    suggestion: "保守策略可启用。"
+  },
+  "require_rebound": {
+    name: "要求反弹",
+    type: "布尔 (Yes/No)",
+    default: "false",
+    range: "true / false",
+    unit: "",
+    desc: "是否要求出现反弹特征后才允许买入。",
+    logic: "用于减少下跌中接飞刀。",
+    example: "false",
+    suggestion: "抄底风格可启用。"
+  },
+  "require_green": {
+    name: "要求阳线",
+    type: "布尔 (Yes/No)",
+    default: "false",
+    range: "true / false",
+    unit: "",
+    desc: "是否要求当天为阳线才允许买入。",
+    logic: "用于过滤弱势日的触发。",
+    example: "false",
+    suggestion: "更稳健时启用。"
+  },
+  "max_positions": {
+    name: "最大持仓数",
+    type: "整数 (Count)",
+    default: "5",
+    range: "1 - 50",
+    unit: "只",
+    desc: "组合允许同时持有的最大股票数量。",
+    logic: "限制分散程度与资金管理。",
+    example: "5",
+    suggestion: "越小越集中、越大越分散。"
+  },
+  "max_position_pct": {
+    name: "单票仓位上限",
+    type: "数值 (Ratio)",
+    default: "0.10",
+    range: "0.01 - 1.00",
+    unit: "比例",
+    desc: "单只股票的最大资金占比。",
+    logic: "用于控制单票风险暴露。",
+    example: "0.10 (10%)",
+    suggestion: "保守策略调小。"
+  },
+  "pivot_confirm_days": {
+    name: "企稳确认窗口",
+    type: "整数 (Days)",
+    default: "3",
+    range: "0 - 30",
+    unit: "天",
+    desc: "底部企稳确认窗口，0 表示不启用。",
+    logic: "用于确认底部是否形成。",
+    example: "3",
+    suggestion: "调大: 更严格；调小: 更敏感。"
+  },
+  "pivot_no_new_low_tol": {
+    name: "不创新低容差",
+    type: "数值 (Ratio)",
+    default: "0.01",
+    range: "0.0 - 0.20",
+    unit: "比例",
+    desc: "企稳确认期间不创新低的容差。",
+    logic: "允许在一定容差内的低点波动。",
+    example: "0.01 (1%)",
+    suggestion: "调大: 更宽松；调小: 更严格。"
+  },
+  "pivot_rebound_amp": {
+    name: "反弹幅度",
+    type: "数值 (Ratio)",
+    default: "0.02",
+    range: "0.0 - 0.50",
+    unit: "比例",
+    desc: "企稳确认所需的最小反弹幅度。",
+    logic: "反弹幅度 ≥ pivot_rebound_amp。",
+    example: "0.02 (2%)",
+    suggestion: "调大: 更严格；调小: 更敏感。"
+  },
+  "pivot_confirm_requires_sig": {
+    name: "显著低点才启用企稳",
+    type: "布尔 (Yes/No)",
+    default: "true",
+    range: "true / false",
+    unit: "",
+    desc: "是否仅在出现显著低点信号时启用企稳确认。",
+    logic: "避免无意义的企稳判定。",
+    example: "true",
+    suggestion: "保守策略建议启用。"
+  },
+  "volatility_ratio_max": {
+    name: "波动率比率上限",
+    type: "数值 (Ratio)",
+    default: "1.0",
+    range: "0.5 - 3.0",
+    unit: "比率",
+    desc: "短期波动率/长期波动率的上限过滤。",
+    logic: "vol_ratio ≤ volatility_ratio_max。",
+    example: "1.0",
+    suggestion: "调小: 排除波动骤增；调大: 更宽松。"
   }
 };
+
+const STRATEGY_PARAM_ID_BY_KEY = {
+  channel_period: "cfg-channel-period",
+  buy_touch_eps: "cfg-buy-eps",
+  sell_trigger_eps: "cfg-sell-eps",
+  sell_target_mode: "cfg-sell-mode",
+  channel_break_eps: "cfg-break-eps",
+  entry_fill_eps: "cfg-entry-eps",
+  exit_fill_eps: "cfg-exit-eps",
+  stop_loss_mul: "cfg-stop-loss",
+  stop_loss_on_close: "cfg-stop-loss-on-close",
+  stop_loss_panic_eps: "cfg-stop-loss-panic-eps",
+  max_holding_days: "cfg-max-hold",
+  cooling_period: "cfg-cool",
+  slope_abs_max: "cfg-slope-abs",
+  min_slope_norm: "cfg-min-slope-norm",
+  vol_shrink_min: "cfg-vol-shrink-min",
+  vol_shrink_max: "cfg-vol-shrink-max",
+  min_channel_height: "cfg-min-height",
+  min_mid_room: "cfg-min-room",
+  scan_recent_days: "cfg-recent-days",
+  require_index_condition: "cfg-require-index-confirm",
+  index_bear_exit: "cfg-index-bear-exit",
+  fill_at_close: "cfg-fill-at-close",
+  trend_ma_period: "cfg-trend-ma-period",
+  index_trend_ma_period: "cfg-index-trend-ma-period",
+  require_rebound: "cfg-require-rebound",
+  require_green: "cfg-require-green",
+  max_positions: "cfg-max-positions",
+  max_position_pct: "cfg-max-position-pct",
+  pivot_confirm_days: "cfg-pivot-confirm-days",
+  pivot_no_new_low_tol: "cfg-pivot-no-new-low-tol",
+  pivot_rebound_amp: "cfg-pivot-rebound-amp",
+  pivot_confirm_requires_sig: "cfg-pivot-confirm-requires-sig",
+  min_mid_profit_pct: "cfg-min-mid-profit-pct",
+  min_rr_to_mid: "cfg-min-rr-to-mid",
+  volatility_ratio_max: "cfg-volatility-ratio-max",
+};
+
+const STRATEGY_PARAM_KEY_BY_ID = Object.fromEntries(
+  Object.entries(STRATEGY_PARAM_ID_BY_KEY).map(([k, id]) => [id, k])
+);
+
+const _RECENT_CFG_KEYS_STORAGE_KEY = "recent_cfg_keys_v1";
+const _RECENT_CFG_KEYS_MAX = 20;
 
 /* -------------------------------------------------------------------------- */
 /*                               Global State                                 */
@@ -114,6 +511,138 @@ function boolv(id, def = false) {
 function setInputValue(id, v) {
   const el = document.getElementById(id);
   if (el) el.value = v;
+}
+
+function _normalizeConfigKey(key) {
+  const k = String(key || "").trim();
+  if (!k) return null;
+  const alias = {
+    min_height: "min_channel_height",
+    min_room: "min_mid_room",
+    panic_eps: "stop_loss_panic_eps",
+    max_hold_days: "max_holding_days",
+    trend_ma: "trend_ma_period",
+    index_ma: "index_trend_ma_period",
+    break_eps: "channel_break_eps",
+    min_profit: "min_mid_profit_pct",
+    min_rr: "min_rr_to_mid",
+  };
+  return alias[k] || k;
+}
+
+function _loadRecentConfigKeys() {
+  try {
+    const raw = localStorage.getItem(_RECENT_CFG_KEYS_STORAGE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map(x => String(x)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function _saveRecentConfigKeys(keys) {
+  try {
+    const arr = Array.isArray(keys) ? keys.map(x => String(x)).filter(Boolean) : [];
+    localStorage.setItem(_RECENT_CFG_KEYS_STORAGE_KEY, JSON.stringify(arr.slice(0, _RECENT_CFG_KEYS_MAX)));
+  } catch {}
+}
+
+function _markRecentConfigKey(key) {
+  const k = String(key || "").trim();
+  if (!k) return;
+  const cur = _loadRecentConfigKeys();
+  const next = [k, ...cur.filter(x => x !== k)];
+  _saveRecentConfigKeys(next);
+}
+
+function _getRecentConfigKeySet() {
+  return new Set(_loadRecentConfigKeys());
+}
+
+function _getConfigInputElByKey(key) {
+  const k = String(key || "").trim();
+  if (!k) return null;
+  const id = STRATEGY_PARAM_ID_BY_KEY[k];
+  const byId = id ? document.getElementById(id) : null;
+  if (byId) return byId;
+  try {
+    const bindings = _collectConfigBindings();
+    return bindings.get(k) || null;
+  } catch {
+    return null;
+  }
+}
+
+function _isDefaultDifferentFromCurrent(key, el) {
+  const k = String(key || "").trim();
+  if (!k || !el) return false;
+  const def = PARAM_DEFINITIONS[k];
+  if (!def || def.default == null) return false;
+
+  const defRaw = String(def.default).trim();
+  if (el.type === "checkbox") {
+    const defBool = defRaw === "true" || defRaw === "1";
+    return Boolean(el.checked) !== defBool;
+  }
+
+  const curRaw = String(el.value ?? "").trim();
+  if (el.type === "number") {
+    const curNum = Number(curRaw);
+    const defNum = Number(defRaw);
+    if (!Number.isFinite(defNum)) return false;
+    if (!Number.isFinite(curNum)) return true;
+    return curNum !== defNum;
+  }
+
+  return curRaw !== defRaw;
+}
+
+function _jumpToConfigKey(key) {
+  const k = String(key || "").trim();
+  if (!k) return;
+  try {
+    setActiveView("config");
+  } catch {}
+
+  const el = _getConfigInputElByKey(k);
+  if (!el) return;
+
+  try {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch {
+    try { el.scrollIntoView(); } catch {}
+  }
+
+  try {
+    el.focus({ preventScroll: true });
+  } catch {
+    try { el.focus(); } catch {}
+  }
+
+  const cls = ["ring-2", "ring-blue-500", "ring-offset-2", "ring-offset-white", "dark:ring-offset-slate-900"];
+  try {
+    el.classList.add(...cls);
+    setTimeout(() => {
+      try { el.classList.remove(...cls); } catch {}
+    }, 1200);
+  } catch {}
+}
+
+function initRecentConfigKeyTracking() {
+  for (const [key, id] of Object.entries(STRATEGY_PARAM_ID_BY_KEY)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const handler = () => {
+      _markRecentConfigKey(key);
+      const inputParams = getStrategyConfigFromUI();
+      const dbgParams = (_debugState && _debugState.lastResult && _debugState.lastResult.params) ? _debugState.lastResult.params : null;
+      _renderDebugParamsPanel({ __input_params: inputParams, __running_params: dbgParams });
+      _renderBacktestParamsPanel({ __input_params: inputParams, __running_params: null });
+    };
+    el.addEventListener("input", handler);
+    el.addEventListener("change", handler);
+  }
 }
 
 function toMsg(e) {
@@ -195,6 +724,502 @@ const _BATCH_TASK_POLL_INTERVAL = {
   cancelled: 30000,
   default: 10000,
 };
+
+const _TASK_CENTER_STORAGE_KEY = "chhf_task_center_v1";
+const _TASK_CENTER_MAX_KEEP = 200;
+
+const _taskCenterState = {
+  selectedId: null,
+};
+
+function _taskCenterNowIso() {
+  return new Date().toISOString();
+}
+
+function _taskCenterId() {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+  } catch (e) {}
+  const t = Date.now();
+  const r = Math.floor(Math.random() * 1e9);
+  return `t_${t}_${r}`;
+}
+
+function _taskCenterLoadAll() {
+  try {
+    const raw = localStorage.getItem(_TASK_CENTER_STORAGE_KEY);
+    const data = JSON.parse(raw || "[]");
+    const arr = Array.isArray(data) ? data : [];
+    const out = [];
+    for (const it of arr) {
+      if (!it || typeof it !== "object") continue;
+      const id = String(it.id || "").trim();
+      if (!id) continue;
+      out.push({
+        id,
+        type: String(it.type || "unknown"),
+        title: typeof it.title === "string" ? it.title : "",
+        status: String(it.status || "unknown"),
+        created_at: String(it.created_at || ""),
+        finished_at: it.finished_at ? String(it.finished_at) : "",
+        archived: !!it.archived,
+        recent_days: (it.recent_days == null || !Number.isFinite(Number(it.recent_days))) ? null : Number(it.recent_days),
+        progress_done: (it.progress_done == null || !Number.isFinite(Number(it.progress_done))) ? 0 : Math.trunc(Number(it.progress_done)),
+        progress_total: (it.progress_total == null || !Number.isFinite(Number(it.progress_total))) ? 0 : Math.trunc(Number(it.progress_total)),
+        summary: typeof it.summary === "string" ? it.summary : "",
+        request: (it.request && typeof it.request === "object") ? it.request : null,
+        signal_results: Array.isArray(it.signal_results) ? it.signal_results : [],
+        backtest_results: Array.isArray(it.backtest_results) ? it.backtest_results : [],
+        errors: Array.isArray(it.errors) ? it.errors : [],
+      });
+    }
+    out.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+function _taskCenterSaveAll(tasks) {
+  const arr = Array.isArray(tasks) ? tasks : [];
+  try {
+    localStorage.setItem(_TASK_CENTER_STORAGE_KEY, JSON.stringify(arr.slice(0, _TASK_CENTER_MAX_KEEP)));
+  } catch (e) {}
+}
+
+function _taskCenterUpsert(task) {
+  if (!task || typeof task !== "object") return;
+  const id = String(task.id || "").trim();
+  if (!id) return;
+  const all = _taskCenterLoadAll();
+  const idx = all.findIndex(x => String(x.id) === id);
+  const next = {
+    ...(idx >= 0 ? all[idx] : {}),
+    ...task,
+    id,
+  };
+  if (idx >= 0) all[idx] = next;
+  else all.unshift(next);
+  _taskCenterSaveAll(all);
+}
+
+function _taskCenterUpdate(taskId, patch) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const all = _taskCenterLoadAll();
+  const idx = all.findIndex(x => String(x.id) === tid);
+  if (idx < 0) return;
+  all[idx] = { ...all[idx], ...(patch && typeof patch === "object" ? patch : {}) };
+  _taskCenterSaveAll(all);
+}
+
+function _taskCenterAppendError(taskId, errMsg) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const msg = String(errMsg || "").trim();
+  if (!msg) return;
+  const all = _taskCenterLoadAll();
+  const idx = all.findIndex(x => String(x.id) === tid);
+  if (idx < 0) return;
+  const prev = all[idx];
+  const errors = Array.isArray(prev.errors) ? prev.errors.slice() : [];
+  errors.unshift({ at: _taskCenterNowIso(), message: msg });
+  all[idx] = { ...prev, errors };
+  _taskCenterSaveAll(all);
+}
+
+function _taskCenterAppendBacktestRow(taskId, row) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const all = _taskCenterLoadAll();
+  const idx = all.findIndex(x => String(x.id) === tid);
+  if (idx < 0) return;
+  const prev = all[idx];
+  const rows = Array.isArray(prev.backtest_results) ? prev.backtest_results.slice() : [];
+  rows.push(row);
+  all[idx] = { ...prev, backtest_results: rows.slice(0, 5000) };
+  _taskCenterSaveAll(all);
+}
+
+function _taskCenterAppendSignalRow(taskId, row) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return;
+  const all = _taskCenterLoadAll();
+  const idx = all.findIndex(x => String(x.id) === tid);
+  if (idx < 0) return;
+  const prev = all[idx];
+  const rows = Array.isArray(prev.signal_results) ? prev.signal_results.slice() : [];
+  rows.push(row);
+  all[idx] = { ...prev, signal_results: rows.slice(0, 5000) };
+  _taskCenterSaveAll(all);
+}
+
+function _taskCenterVisibleTasks(tasks) {
+  const arr = Array.isArray(tasks) ? tasks : [];
+  return arr.filter(t => t && !t.archived);
+}
+
+function _taskCenterStatusBadge(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "running") return `<span class="text-blue-600 dark:text-blue-400 font-bold">运行中</span>`;
+  if (s === "completed") return `<span class="text-emerald-600 dark:text-emerald-400 font-bold">完成</span>`;
+  if (s === "error") return `<span class="text-rose-600 dark:text-rose-400 font-bold">失败</span>`;
+  if (s === "cancelled") return `<span class="text-slate-500 font-bold">已取消</span>`;
+  return `<span class="text-slate-500 font-bold">${_escapeHtml(status || "-")}</span>`;
+}
+
+function _taskCenterRenderList() {
+  const tbody = document.getElementById("task-list");
+  if (!tbody) return;
+  const tasks = _taskCenterVisibleTasks(_taskCenterLoadAll());
+  tbody.innerHTML = "";
+  if (!tasks.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="px-3 py-6 text-center text-slate-400 dark:text-slate-500" colspan="6">暂无任务（运行一次回测/扫描后会自动记录）</td>
+    `;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const t of tasks) {
+    const tr = document.createElement("tr");
+    const created = t.created_at ? new Date(t.created_at) : null;
+    const timeText = created && !Number.isNaN(created.getTime()) ? created.toLocaleString() : (t.created_at || "-");
+    const progressText = t.progress_total ? `${t.progress_done || 0}/${t.progress_total || 0}` : "-";
+    const recentDaysText = t.recent_days == null ? "-" : String(t.recent_days);
+    const signalText = t.summary ? _escapeHtml(t.summary) : "-";
+    const selected = _taskCenterState.selectedId && String(_taskCenterState.selectedId) === String(t.id);
+    tr.className = `hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selected ? "bg-slate-50 dark:bg-slate-800/50" : ""}`;
+    tr.dataset.taskId = String(t.id);
+    tr.innerHTML = `
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(timeText)}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50">${_taskCenterStatusBadge(t.status)}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400">${_escapeHtml(recentDaysText)}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(progressText)}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 dark:text-slate-300 truncate max-w-[260px]" title="${_escapeHtml(t.summary || "")}">${signalText}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-center whitespace-nowrap">
+        <button class="text-blue-600 hover:text-blue-800 underline text-[10px] mr-2" data-action="view" data-task-id="${_escapeHtml(t.id)}">查看</button>
+        <button class="text-rose-600 hover:text-rose-800 underline text-[10px]" data-action="delete" data-task-id="${_escapeHtml(t.id)}">删除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function _taskCenterSetCopyButton(btnId, textProvider) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.onclick = async () => {
+    try {
+      const text = String(textProvider ? textProvider() : "");
+      if (!text) return;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+    } catch (e) {}
+  };
+}
+
+function _taskCenterRenderDetail(taskId) {
+  const titleEl = document.getElementById("task-detail-title");
+  const detailEl = document.getElementById("task-detail");
+  const rerunBtn = document.getElementById("task-rerun");
+  const signalBlock = document.getElementById("task-signal-block");
+  const backtestBlock = document.getElementById("task-backtest-block");
+  const errorsTbody = document.getElementById("task-errors");
+  const signalTbody = document.getElementById("task-results");
+  const backtestTbody = document.getElementById("task-backtest-results");
+  if (!titleEl || !detailEl) return;
+
+  const tid = String(taskId || "").trim();
+  if (!tid) {
+    titleEl.textContent = "任务详情";
+    detailEl.textContent = "";
+    if (rerunBtn) rerunBtn.disabled = true;
+    if (signalTbody) signalTbody.innerHTML = "";
+    if (backtestTbody) backtestTbody.innerHTML = "";
+    if (errorsTbody) errorsTbody.innerHTML = "";
+    if (backtestBlock) backtestBlock.classList.add("hidden");
+    if (signalBlock) signalBlock.classList.remove("hidden");
+    return;
+  }
+
+  const all = _taskCenterLoadAll();
+  const t = all.find(x => String(x.id) === tid);
+  if (!t) return;
+
+  titleEl.textContent = `${t.type || "task"} · ${t.id}`;
+  const detailObj = {
+    id: t.id,
+    type: t.type,
+    status: t.status,
+    created_at: t.created_at,
+    finished_at: t.finished_at || null,
+    recent_days: t.recent_days,
+    progress: t.progress_total ? `${t.progress_done || 0}/${t.progress_total || 0}` : null,
+    summary: t.summary || null,
+    request: t.request || null,
+  };
+  detailEl.textContent = JSON.stringify(detailObj, null, 2);
+
+  if (rerunBtn) rerunBtn.disabled = !(t && t.request && (t.type === "backtest" || t.type === "param_batch_test"));
+
+  if (errorsTbody) {
+    errorsTbody.innerHTML = "";
+    const errs = Array.isArray(t.errors) ? t.errors : [];
+    for (const e of errs) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${_escapeHtml((e && e.at) ? String(e.at).slice(0, 19).replace("T", " ") : "-")}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-rose-600 dark:text-rose-400">${_escapeHtml((e && e.message) ? e.message : "-")}</td>
+      `;
+      errorsTbody.appendChild(tr);
+    }
+  }
+
+  const isBacktest = t.type === "backtest";
+  if (backtestBlock) backtestBlock.classList.toggle("hidden", !isBacktest);
+  if (signalBlock) signalBlock.classList.toggle("hidden", isBacktest);
+
+  if (signalTbody) {
+    signalTbody.innerHTML = "";
+    const rows = Array.isArray(t.signal_results) ? t.signal_results : [];
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-700 dark:text-slate-300">${_escapeHtml(r && r.symbol ? r.symbol : "-")}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(r && r.date ? r.date : "-")}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-center">${_escapeHtml(r && r.status ? r.status : "-")}</td>
+      `;
+      signalTbody.appendChild(tr);
+    }
+  }
+
+  if (backtestTbody) {
+    backtestTbody.innerHTML = "";
+    const rows = Array.isArray(t.backtest_results) ? t.backtest_results : [];
+    for (const r of rows) {
+      const sym = r && r.symbol ? String(r.symbol) : "-";
+      const trt = (r && Number.isFinite(Number(r.total_return))) ? (Number(r.total_return) * 100).toFixed(2) + "%" : "-";
+      const sc = (r && Number.isFinite(Number(r.score))) ? Number(r.score).toFixed(2) : "-";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-700 dark:text-slate-300">${_escapeHtml(sym)}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono font-bold">${_escapeHtml(trt)}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(sc)}</td>
+      `;
+      backtestTbody.appendChild(tr);
+    }
+  }
+
+  _taskCenterSetCopyButton("task-copy-results", () => JSON.stringify(t.signal_results || [], null, 2));
+  _taskCenterSetCopyButton("task-copy-backtest", () => JSON.stringify(t.backtest_results || [], null, 2));
+  _taskCenterSetCopyButton("task-copy-errors", () => JSON.stringify(t.errors || [], null, 2));
+}
+
+function _taskCenterSelect(taskId) {
+  _taskCenterState.selectedId = taskId ? String(taskId) : null;
+  _taskCenterRenderList();
+  _taskCenterRenderDetail(_taskCenterState.selectedId);
+}
+
+function _taskCenterArchiveCompleted() {
+  const all = _taskCenterLoadAll();
+  const next = all.map(t => {
+    const st = String(t.status || "").toLowerCase();
+    if (st === "running") return t;
+    return { ...t, archived: true };
+  });
+  _taskCenterSaveAll(next);
+}
+
+function _taskCenterExportVisible() {
+  const tasks = _taskCenterVisibleTasks(_taskCenterLoadAll());
+  const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `task_center_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function _runBacktestStream(req, onMsg) {
+  const resp = await fetch("/api/backtest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req)
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `启动失败: HTTP ${resp.status}`);
+  }
+  if (!resp.body) throw new Error("响应无流数据");
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const msg = JSON.parse(line);
+      if (onMsg) onMsg(msg);
+    }
+  }
+}
+
+async function runBacktestTask(req, ui) {
+  const taskId = _taskCenterId();
+  _taskCenterUpsert({
+    id: taskId,
+    type: "backtest",
+    title: "回测",
+    status: "running",
+    created_at: _taskCenterNowIso(),
+    archived: false,
+    request: req,
+    progress_done: 0,
+    progress_total: 0,
+    backtest_results: [],
+    errors: [],
+    summary: "",
+  });
+  _taskCenterRenderList();
+
+  let total = 0;
+  let done = 0;
+  try {
+    await _runBacktestStream(req, (msg) => {
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "start") {
+        total = Number(msg.total) || 0;
+        _taskCenterUpdate(taskId, { progress_total: total, progress_done: 0, status: "running" });
+        if (ui && ui.statusEl) ui.statusEl.textContent = total ? `回测中 0/${total}` : "回测中...";
+      } else if (msg.type === "result") {
+        done += 1;
+        if (msg.data) _taskCenterAppendBacktestRow(taskId, msg.data);
+        _taskCenterUpdate(taskId, {
+          progress_done: done,
+          summary: `${done} 条回测结果`,
+          status: "running",
+        });
+        if (ui && ui.tbody && msg.data) renderBacktestRowToTbody(ui.tbody, msg.data);
+        if (ui && ui.statusEl) ui.statusEl.textContent = total ? `回测中 ${done}/${total}` : `回测中 ${done}`;
+      } else if (msg.type === "error") {
+        const m = msg.message ? String(msg.message) : "未知错误";
+        _taskCenterAppendError(taskId, m);
+        _taskCenterUpdate(taskId, { status: "error", summary: "回测失败" });
+        if (ui && ui.logsEl) appendRunLog(`Error: ${m}`);
+      } else if (msg.type === "end") {
+        _taskCenterUpdate(taskId, { status: "completed", finished_at: _taskCenterNowIso(), summary: `${done} 条回测结果` });
+        if (ui && ui.statusEl) ui.statusEl.textContent = "完成";
+        if (ui && ui.tbody && done === 0) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td class="px-3 py-6 text-center text-slate-400 dark:text-slate-500" colspan="18">暂无回测结果（请检查股票列表/区间/数据目录）</td>`;
+          ui.tbody.appendChild(tr);
+        }
+      }
+      if (_taskCenterState.selectedId && String(_taskCenterState.selectedId) === String(taskId)) {
+        _taskCenterRenderDetail(taskId);
+      }
+    });
+    _taskCenterUpdate(taskId, { status: "completed", finished_at: _taskCenterNowIso(), summary: `${done} 条回测结果` });
+  } catch (e) {
+    _taskCenterAppendError(taskId, toMsg(e));
+    _taskCenterUpdate(taskId, { status: "error", finished_at: _taskCenterNowIso(), summary: "回测失败" });
+    throw e;
+  } finally {
+    _taskCenterRenderList();
+  }
+  return taskId;
+}
+
+function initTaskCenterPanel() {
+  const btnRefresh = document.getElementById("task-refresh");
+  const btnArchive = document.getElementById("task-archive");
+  const btnExport = document.getElementById("task-export");
+  const btnClear = document.getElementById("task-clear");
+  const rerunBtn = document.getElementById("task-rerun");
+  const tbody = document.getElementById("task-list");
+  if (!tbody) return;
+
+  if (btnRefresh) btnRefresh.onclick = () => _taskCenterRenderList();
+  if (btnArchive) btnArchive.onclick = () => {
+    _taskCenterArchiveCompleted();
+    if (_taskCenterState.selectedId) _taskCenterState.selectedId = null;
+    _taskCenterRenderList();
+    _taskCenterRenderDetail(null);
+  };
+  if (btnExport) btnExport.onclick = () => _taskCenterExportVisible();
+  if (btnClear) btnClear.onclick = () => {
+    if (!confirm("确定要清空任务中心吗？")) return;
+    _taskCenterSaveAll([]);
+    _taskCenterState.selectedId = null;
+    _taskCenterRenderList();
+    _taskCenterRenderDetail(null);
+  };
+
+  tbody.onclick = (ev) => {
+    const t = ev.target;
+    const action = t && t.dataset ? t.dataset.action : null;
+    const taskId = t && t.dataset ? t.dataset.taskId : null;
+    if (action === "view" && taskId) {
+      _taskCenterSelect(taskId);
+      return;
+    }
+    if (action === "delete" && taskId) {
+      if (!confirm("确定要删除此任务吗？")) return;
+      const all = _taskCenterLoadAll().filter(x => String(x.id) !== String(taskId));
+      _taskCenterSaveAll(all);
+      if (_taskCenterState.selectedId && String(_taskCenterState.selectedId) === String(taskId)) _taskCenterState.selectedId = null;
+      _taskCenterRenderList();
+      _taskCenterRenderDetail(_taskCenterState.selectedId);
+      return;
+    }
+    const row = t && typeof t.closest === "function" ? t.closest("tr[data-task-id]") : null;
+    const rid = row ? row.dataset.taskId : null;
+    if (rid) _taskCenterSelect(rid);
+  };
+
+  if (rerunBtn) {
+    rerunBtn.onclick = async () => {
+      const tid = _taskCenterState.selectedId;
+      if (!tid) return;
+      const all = _taskCenterLoadAll();
+      const t = all.find(x => String(x.id) === String(tid));
+      if (!t || !t.request) return;
+      try {
+        if (t.type === "backtest") {
+          setActiveView("backtest");
+          await runBacktestTask(t.request, {
+            statusEl: document.getElementById("bt-status"),
+            tbody: document.getElementById("bt-results"),
+            logsEl: document.getElementById("run-logs"),
+          });
+        }
+      } catch (e) {}
+    };
+  }
+
+  _taskCenterRenderList();
+  _taskCenterRenderDetail(null);
+}
 
 function updateCancelButton(taskId, status) {
   const tid = String(taskId || "").trim();
@@ -682,31 +1707,37 @@ function poolImportFromBacktest() {
   }
   const parsed = [];
   for (const tr of rows) {
-    const tds = Array.from(tr.querySelectorAll("td"));
-    if (tds.length < 5) continue;
-    const symbol = _normSymbol(tds[0].textContent);
+    const symbol = _normSymbol(tr.dataset.symbol || (tr.querySelector("td") ? tr.querySelector("td").textContent : ""));
     if (!symbol) continue;
-    const trades = Number(String(tds[1].textContent || "").trim());
-    const win_rate = _parsePctText(tds[2].textContent);
-    const total_return = _parsePctText(tds[3].textContent);
-    const max_drawdown = _parsePctText(tds[4].textContent);
-    const score = Number.isFinite(total_return) ? total_return * 100 : 0;
-    const score_robust = (Number.isFinite(total_return) ? total_return * 100 : 0) - (Number.isFinite(max_drawdown) ? Math.abs(max_drawdown) * 100 : 0);
+
+    const trades = Number(tr.dataset.trades);
+    const win_rate = Number(tr.dataset.win_rate);
+    const total_return = Number(tr.dataset.total_return);
+    const max_drawdown = Number(tr.dataset.max_drawdown);
+    const score = Number(tr.dataset.score);
+    const score_robust = Number(tr.dataset.score_robust);
+    const range = tr.dataset.range || (() => {
+      const beg = normalizeYmOrYmd(val("bt-beg", ""), "beg");
+      const end = normalizeYmOrYmd(val("bt-end", ""), "end");
+      if (!beg && !end) return "-";
+      return `${beg || "-"} ~ ${end || "-"}`;
+    })();
+
+    const scoreSafe = Number.isFinite(score) ? score : (Number.isFinite(total_return) ? total_return * 100 : 0);
+    const scoreRobustSafe = Number.isFinite(score_robust)
+      ? score_robust
+      : ((Number.isFinite(scoreSafe) ? scoreSafe : 0) - (Number.isFinite(max_drawdown) ? Math.abs(max_drawdown) * 100 : 0));
+
     parsed.push({
       symbol,
       bt: {
         trades: Number.isFinite(trades) ? trades : null,
-        win_rate,
-        total_return,
-        max_drawdown,
-        score: Number(score.toFixed(4)),
-        score_robust: Number(score_robust.toFixed(4)),
-        range: (() => {
-          const beg = normalizeYmOrYmd(val("bt-beg", ""), "beg");
-          const end = normalizeYmOrYmd(val("bt-end", ""), "end");
-          if (!beg && !end) return "-";
-          return `${beg || "-"} ~ ${end || "-"}`;
-        })(),
+        win_rate: Number.isFinite(win_rate) ? win_rate : null,
+        total_return: Number.isFinite(total_return) ? total_return : null,
+        max_drawdown: Number.isFinite(max_drawdown) ? max_drawdown : null,
+        score: Number.isFinite(scoreSafe) ? Number(scoreSafe.toFixed(4)) : 0,
+        score_robust: Number.isFinite(scoreRobustSafe) ? Number(scoreRobustSafe.toFixed(4)) : 0,
+        range,
       }
     });
   }
@@ -1057,6 +2088,9 @@ function getStrategyConfigFromUI() {
 function _clearScanResults() {
   const tbody = document.getElementById("scan-results");
   if (tbody) tbody.innerHTML = "";
+  _scanSetTraceVisible(false);
+  _scanSetTraceStatus("");
+  _scanRenderTrace([]);
 }
 
 function _setScanUiRunning(running) {
@@ -1077,6 +2111,46 @@ function _setScanProgress(done, total) {
   const pct = total > 0 ? Math.max(0, Math.min(100, (done / total) * 100)) : 0;
   if (bar) bar.style.width = `${pct.toFixed(2)}%`;
   if (txt) txt.textContent = total > 0 ? `${done}/${total}` : "";
+}
+
+function _scanSetTraceVisible(show) {
+  const wrap = document.getElementById("scan-trace-wrap");
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", !show);
+}
+
+function _scanSetTraceStatus(text) {
+  const el = document.getElementById("scan-trace-status");
+  if (el) el.textContent = text || "";
+}
+
+function _scanRenderTrace(trace) {
+  const tbody = document.getElementById("scan-trace");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const list = Array.isArray(trace) ? trace : [];
+  if (list.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="px-3 py-3 border-b border-slate-100 dark:border-slate-800/50 text-slate-500 dark:text-slate-400" colspan="6">暂无决策链数据</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const step of list) {
+    if (!step || typeof step !== "object") continue;
+    const tr = document.createElement("tr");
+    const passed = step.passed;
+    const passedText = passed === true ? "通过" : (passed === false ? "失败" : "-");
+    const passedCls = passed === true ? "text-emerald-600" : (passed === false ? "text-rose-600" : "text-slate-500");
+    tr.innerHTML = `
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 font-bold text-slate-700 dark:text-slate-200">${_escapeHtml(step.step ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-600 dark:text-slate-400">${_escapeHtml(step.check ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(step.threshold ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(step.actual ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 font-bold ${passedCls}">${_escapeHtml(passedText)}</td>
+      <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-600 dark:text-slate-400">${_escapeHtml(step.reason ?? "-")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
 }
 
 function _renderScanResultRow(data) {
@@ -1114,7 +2188,15 @@ function _renderScanResultRow(data) {
   const statusText = sig === 1 ? "买入" : (sig === -1 ? "卖出" : "-");
 
   const tr = document.createElement("tr");
-  tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors";
+  tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer";
+  tr.dataset.symbol = String(symbol);
+  tr.dataset.date = String(dt || "").slice(0, 10);
+  try {
+    const trc = (env && Array.isArray(env.trace)) ? env.trace : [];
+    tr.dataset.trace = JSON.stringify(trc);
+  } catch (_) {
+    tr.dataset.trace = "[]";
+  }
   tr.innerHTML = `
     <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 font-mono text-slate-700 dark:text-slate-300">${symbol}</td>
     <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${dt}</td>
@@ -1131,6 +2213,18 @@ function _renderScanResultRow(data) {
     <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-700 dark:text-slate-300 font-bold">${statusText}</td>
     <td class="px-3 py-2 border-b border-slate-100 dark:border-slate-800/50 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[240px]">${_escapeHtml((env.trace && env.trace.length) ? env.trace[env.trace.length - 1].reason : (data.error || ""))}</td>
   `;
+  tr.addEventListener("click", () => {
+    const dtText = String(dt || "").slice(0, 10);
+    let trace = [];
+    try {
+      trace = JSON.parse(tr.dataset.trace || "[]");
+    } catch (_) {
+      trace = [];
+    }
+    _scanSetTraceVisible(true);
+    _scanSetTraceStatus(`${symbol} · ${dtText || "-"}`);
+    _scanRenderTrace(trace);
+  });
   tbody.appendChild(tr);
 }
 
@@ -1158,6 +2252,24 @@ async function runChannelHFScan() {
   const indexData = val("scan-index-data", "").trim();
   const indexSymbol = val("scan-index-symbol", "000300.SH").trim();
 
+  const taskId = _taskCenterId();
+  _taskCenterUpsert({
+    id: taskId,
+    type: "scan",
+    title: "扫描",
+    status: "running",
+    created_at: _taskCenterNowIso(),
+    archived: false,
+    request: null,
+    recent_days: null,
+    progress_done: 0,
+    progress_total: 0,
+    signal_results: [],
+    errors: [],
+    summary: "",
+  });
+  _taskCenterRenderList();
+
   try {
     const req = {
       data_dir: dataDir,
@@ -1167,6 +2279,7 @@ async function runChannelHFScan() {
       use_realtime: !!useRealtime,
       ...getStrategyConfigFromUI(),
     };
+    _taskCenterUpdate(taskId, { request: req, recent_days: req.scan_recent_days ?? null });
 
     const resp = await fetch("/api/scan", {
       method: "POST",
@@ -1202,6 +2315,7 @@ async function runChannelHFScan() {
           done = 0;
           _setScanProgress(done, total);
           appendRunLog(`扫描开始 job_id=${currentTaskId || "-" } total=${total}`);
+          _taskCenterUpdate(taskId, { progress_total: total, progress_done: 0, status: "running" });
           continue;
         }
 
@@ -1211,6 +2325,7 @@ async function runChannelHFScan() {
             done = p.done;
             total = p.total;
             _setScanProgress(done, total);
+            _taskCenterUpdate(taskId, { progress_total: total, progress_done: done, status: "running" });
           }
           appendRunLog(`扫描中... ${msg.progress || ""}`.trim());
           continue;
@@ -1225,23 +2340,42 @@ async function runChannelHFScan() {
             done += 1;
           }
           _setScanProgress(done, total);
-          if (msg.status === "success") _renderScanResultRow(msg.data);
-          else appendRunLog(`Error: ${msg.message || "未知错误"}`);
+          if (msg.status === "success") {
+            _renderScanResultRow(msg.data);
+            const d = (msg.data && typeof msg.data === "object") ? msg.data : {};
+            const env = (d.env && typeof d.env === "object") ? d.env : {};
+            const statusText = env.index_bear ? "指数熊" : (env.ok ? "买点" : "过滤");
+            _taskCenterAppendSignalRow(taskId, { symbol: d.symbol || "-", date: d.date || "-", status: statusText });
+          } else {
+            const m = msg.message || "未知错误";
+            appendRunLog(`Error: ${m}`);
+            _taskCenterAppendError(taskId, m);
+          }
+          _taskCenterUpdate(taskId, { progress_total: total || 0, progress_done: done || 0, status: "running", summary: `扫描 ${done || 0}/${total || 0}` });
+          _taskCenterRenderList();
           continue;
         }
 
         if (msg.type === "error") {
-          appendRunLog(`Error: ${msg.message || "未知错误"}`);
+          const m = msg.message || "未知错误";
+          appendRunLog(`Error: ${m}`);
+          _taskCenterAppendError(taskId, m);
+          _taskCenterUpdate(taskId, { status: "error", summary: "扫描失败", finished_at: _taskCenterNowIso() });
+          _taskCenterRenderList();
           continue;
         }
 
         if (msg.type === "cancelled") {
           appendRunLog(`已中断 ${msg.progress || ""}`.trim());
+          _taskCenterUpdate(taskId, { status: "cancelled", summary: "已中断", finished_at: _taskCenterNowIso() });
+          _taskCenterRenderList();
           continue;
         }
 
         if (msg.type === "end") {
           appendRunLog("扫描结束");
+          _taskCenterUpdate(taskId, { status: "completed", summary: `扫描完成 ${done || 0}/${total || 0}`, finished_at: _taskCenterNowIso() });
+          _taskCenterRenderList();
           continue;
         }
       }
@@ -1252,6 +2386,9 @@ async function runChannelHFScan() {
     const msg = toMsg(e);
     _setScanStatus(`Error: ${msg}`);
     appendRunLog(`Error: ${msg}`);
+    _taskCenterAppendError(taskId, msg);
+    _taskCenterUpdate(taskId, { status: "error", summary: "扫描失败", finished_at: _taskCenterNowIso() });
+    _taskCenterRenderList();
   } finally {
     _setScanUiRunning(false);
     currentTaskId = null;
@@ -1447,7 +2584,8 @@ function initConfigParamHelpBinding() {
     if (!(t instanceof HTMLElement)) return;
     const el = t.closest("input, select, textarea");
     if (!el) return;
-    const k = elToKey.get(el);
+    const fromId = el.id ? STRATEGY_PARAM_KEY_BY_ID[el.id] : null;
+    const k = fromId || elToKey.get(el);
     if (k) _renderParamHelpInline(k);
   };
 
@@ -2455,23 +3593,41 @@ function setActiveView(id) {
   document.querySelectorAll("nav button").forEach(b => {
     const viewId = b.dataset.view || b.dataset.target;
     if (viewId === id) {
-      b.classList.add("bg-blue-50", "text-blue-600", "dark:bg-blue-900/20", "dark:text-blue-400");
-      b.classList.remove("text-slate-500", "dark:text-slate-400", "hover:bg-slate-50");
+      b.classList.add("active");
     } else {
-      b.classList.remove("bg-blue-50", "text-blue-600", "dark:bg-blue-900/20", "dark:text-blue-400");
-      b.classList.add("text-slate-500", "dark:text-slate-400", "hover:bg-slate-50");
+      b.classList.remove("active");
     }
   });
+
+  try {
+    if (id === "backtest") {
+      _renderBacktestParamsPanel(getStrategyConfigFromUI());
+    } else if (id === "debug") {
+      const p = (_debugState && _debugState.lastResult && _debugState.lastResult.params) ? _debugState.lastResult.params : getStrategyConfigFromUI();
+      _renderDebugParamsPanel(p);
+    }
+  } catch {}
 }
 
 let _cfgBindings = null;
 
 function _extractConfigKey(labelText) {
   const m = String(labelText || "").match(/\(([^)]+)\)/);
-  return m ? m[1].trim() : null;
+  const raw = m ? m[1].trim() : null;
+  return _normalizeConfigKey(raw);
 }
 
 function _collectConfigBindings() {
+  if (typeof STRATEGY_PARAM_ID_BY_KEY === "object" && STRATEGY_PARAM_ID_BY_KEY) {
+    const bindings = new Map();
+    for (const [key, id] of Object.entries(STRATEGY_PARAM_ID_BY_KEY)) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      bindings.set(key, el);
+    }
+    return bindings;
+  }
+
   const bindings = new Map();
   const root = document.getElementById("view-config") || document;
   const labels = Array.from(root.querySelectorAll("label"));
@@ -2487,7 +3643,7 @@ function _collectConfigBindings() {
 }
 
 function readConfigFromUI() {
-  if (!_cfgBindings) _cfgBindings = _collectConfigBindings();
+  _cfgBindings = _collectConfigBindings();
   const cfg = {};
   for (const [key, el] of _cfgBindings.entries()) {
     if (!el) continue;
@@ -2508,8 +3664,14 @@ function readConfigFromUI() {
 }
 
 function applyConfigToUI(cfg) {
-  if (!_cfgBindings) _cfgBindings = _collectConfigBindings();
-  const data = (cfg && typeof cfg === "object") ? cfg : {};
+  _cfgBindings = _collectConfigBindings();
+  const raw = (cfg && typeof cfg === "object") ? cfg : {};
+  const data = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const nk = _normalizeConfigKey(k);
+    if (nk) data[nk] = v;
+    else data[k] = v;
+  }
   for (const [key, el] of _cfgBindings.entries()) {
     if (!el) continue;
     if (!(key in data)) continue;
@@ -2547,6 +3709,31 @@ function _renderActivePreset(active) {
   }
 }
 
+async function refreshPresetVersions(name, selectedVersion = null) {
+  const sel = document.getElementById("preset-version-select");
+  if (!sel) return;
+  const nm = (name || "").trim();
+  sel.innerHTML = "";
+  if (!nm) return;
+  try {
+    const url = `/api/presets/versions?name=${encodeURIComponent(nm)}`;
+    const resp = await fetch(url);
+    const data = await resp.json().catch(() => ({}));
+    const versions = Array.isArray(data.versions) ? data.versions : [];
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = versions.length ? "请选择版本" : "暂无版本";
+    sel.appendChild(opt0);
+    for (const v of versions) {
+      const opt = document.createElement("option");
+      opt.value = String(v);
+      opt.textContent = String(v);
+      sel.appendChild(opt);
+    }
+    if (selectedVersion) sel.value = selectedVersion;
+  } catch {}
+}
+
 async function refreshPresets(selectedName = null) {
   const sel = document.getElementById("preset-select");
   if (!sel) return;
@@ -2571,9 +3758,16 @@ async function refreshPresets(selectedName = null) {
     _renderActivePreset(active);
     const nameInput = document.getElementById("preset-name");
     if (nameInput && sel.value && !nameInput.value.trim()) nameInput.value = sel.value;
+    if (sel.value) refreshPresetVersions(sel.value);
   } catch (e) {
     _setPresetStatus(`加载失败: ${toMsg(e)}`, false);
   }
+}
+
+function _slotPresetName(code) {
+  const c = String(code || "").trim().toUpperCase();
+  if (c === "A" || c === "B" || c === "C") return `槽位${c}`;
+  return "槽位A";
 }
 
 function initPresets() {
@@ -2584,8 +3778,21 @@ function initPresets() {
   const btnDelete = document.getElementById("preset-delete");
   if (!sel || !nameInput || !btnSave || !btnApply || !btnDelete) return;
 
-  sel.addEventListener("change", () => {
+  sel.addEventListener("change", async () => {
     if (sel.value) nameInput.value = sel.value;
+    const name = (sel.value || "").trim();
+    if (!name) return;
+    try {
+      const url = `/api/presets/get?name=${encodeURIComponent(name)}`;
+      const resp = await fetch(url);
+      const data = await resp.json().catch(() => ({}));
+      if (!data.ok) return _setPresetStatus(data.msg || "加载失败", false);
+      applyConfigToUI(data.config || {});
+      _setPresetStatus(`已加载预设: ${name}`, true);
+      refreshPresetVersions(name);
+    } catch (e) {
+      _setPresetStatus(`加载失败: ${toMsg(e)}`, false);
+    }
   });
 
   btnSave.addEventListener("click", async () => {
@@ -2604,6 +3811,7 @@ function initPresets() {
       await refreshPresets(name);
       sel.value = name;
       nameInput.value = name;
+      refreshPresetVersions(name);
     } catch (e) {
       _setPresetStatus(`保存失败: ${toMsg(e)}`, false);
     }
@@ -2623,6 +3831,7 @@ function initPresets() {
       applyConfigToUI(data.config || {});
       _setPresetStatus(data.msg || "已应用", true);
       await refreshPresets(name);
+      refreshPresetVersions(name);
     } catch (e) {
       _setPresetStatus(`应用失败: ${toMsg(e)}`, false);
     }
@@ -2642,12 +3851,88 @@ function initPresets() {
       _setPresetStatus(data.msg || "已删除", true);
       nameInput.value = "";
       await refreshPresets("");
+      refreshPresetVersions("");
     } catch (e) {
       _setPresetStatus(`删除失败: ${toMsg(e)}`, false);
     }
   });
 
   refreshPresets();
+}
+
+function initPresetSlotsAndVersioning() {
+  const slotSel = document.getElementById("slot-select");
+  const btnSlotSave = document.getElementById("slot-save");
+  const btnSlotLoad = document.getElementById("slot-load");
+  const btnRollback = document.getElementById("preset-rollback");
+  const presetSel = document.getElementById("preset-select");
+  const verSel = document.getElementById("preset-version-select");
+  if (slotSel && btnSlotSave) {
+    btnSlotSave.addEventListener("click", async () => {
+      const name = _slotPresetName(slotSel.value);
+      const cfg = readConfigFromUI();
+      try {
+        const resp = await fetch("/api/presets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, cfg })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!data.ok) return _setPresetStatus(data.msg || "保存失败", false);
+        _setPresetStatus(data.msg || "已保存", true);
+        await refreshPresets(name);
+        if (presetSel) presetSel.value = name;
+        const nameInput = document.getElementById("preset-name");
+        if (nameInput) nameInput.value = name;
+        refreshPresetVersions(name);
+      } catch (e) {
+        _setPresetStatus(`保存失败: ${toMsg(e)}`, false);
+      }
+    });
+  }
+  if (slotSel && btnSlotLoad) {
+    btnSlotLoad.addEventListener("click", async () => {
+      const name = _slotPresetName(slotSel.value);
+      try {
+        const resp = await fetch("/api/presets/load", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!data.ok) return _setPresetStatus(data.msg || "切换失败", false);
+        applyConfigToUI(data.config || {});
+        _setPresetStatus(data.msg || "已切换", true);
+        await refreshPresets(name);
+        refreshPresetVersions(name);
+      } catch (e) {
+        _setPresetStatus(`切换失败: ${toMsg(e)}`, false);
+      }
+    });
+  }
+  if (btnRollback && presetSel && verSel) {
+    btnRollback.addEventListener("click", async () => {
+      const name = (presetSel.value || "").trim();
+      const version = (verSel.value || "").trim();
+      if (!name) return _setPresetStatus("请选择预设", false);
+      if (!version) return _setPresetStatus("请选择版本", false);
+      try {
+        const resp = await fetch("/api/presets/rollback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, version })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!data.ok) return _setPresetStatus(data.msg || "回溯失败", false);
+        applyConfigToUI(data.config || {});
+        _setPresetStatus(data.msg || "已回溯", true);
+        await refreshPresets(name);
+        refreshPresetVersions(name, version);
+      } catch (e) {
+        _setPresetStatus(`回溯失败: ${toMsg(e)}`, false);
+      }
+    });
+  }
 }
 
 let _debugState = {
@@ -2719,8 +4004,16 @@ function _renderDebugTrace(trace) {
   }
   wrap.classList.remove("hidden");
   tbody.innerHTML = "";
-  if (!Array.isArray(trace) || trace.length === 0) return;
-  for (const step of trace) {
+  const list = Array.isArray(trace) ? trace : [];
+  if (list.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-500 dark:text-slate-400" colspan="6">暂无决策链数据（无成交时默认展示最后一个交易日）</td>
+    `;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const step of list) {
     if (!step || typeof step !== "object") continue;
     const tr = document.createElement("tr");
     const passed = step.passed;
@@ -2817,18 +4110,142 @@ function _renderDebugFeatureSnapshot(snapshot) {
 }
 
 function _renderDebugParamsPanel(params) {
-  const sum = document.getElementById("debug-param-panel-summary");
-  const groups = document.getElementById("debug-param-panel-groups");
+  _renderParamsListPanel("debug-param-panel-summary", "debug-param-panel-groups", params, { emptyText: "未返回参数" });
+}
+
+function _renderBacktestParamsPanel(params) {
+  _renderParamsListPanel("bt-param-panel-summary", "bt-param-panel-groups", params, { emptyText: "未初始化参数" });
+}
+
+function _renderParamsListPanel(summaryId, groupsId, params, { emptyText } = {}) {
+  const sum = document.getElementById(summaryId);
+  const groups = document.getElementById(groupsId);
   if (!sum || !groups) return;
-  const p = (params && typeof params === "object") ? params : {};
-  const keys = Object.keys(p).sort();
-  sum.textContent = keys.length ? `共 ${keys.length} 个参数` : "未返回参数";
+  const payload = (params && typeof params === "object") ? params : {};
+  const input = (payload && typeof payload.__input_params === "object" && payload.__input_params) ? payload.__input_params : payload;
+  const running = (payload && typeof payload.__running_params === "object" && payload.__running_params) ? payload.__running_params : null;
+  const actual = (payload && typeof payload.__actual_env === "object" && payload.__actual_env) ? payload.__actual_env : null;
+  const keysSet = new Set([
+    ...Object.keys((input && typeof input === "object") ? input : {}),
+    ...Object.keys((running && typeof running === "object") ? running : {}),
+  ]);
+  const keys = Array.from(keysSet).sort();
+  sum.textContent = keys.length ? `共 ${keys.length} 个参数` : (emptyText || "");
   groups.innerHTML = "";
-  const box = document.createElement("div");
-  box.className = "border border-slate-100 dark:border-slate-800 rounded-lg p-2 bg-slate-50/40 dark:bg-slate-900/20";
-  const lines = keys.map(k => `${k}: ${p[k]}`).join("\n");
-  box.innerHTML = `<pre class="text-[10px] whitespace-pre-wrap text-slate-700 dark:text-slate-200">${_escapeHtml(lines)}</pre>`;
-  groups.appendChild(box);
+
+  const runtimeMap = (key) => {
+    const k0 = String(key || "").trim();
+    if (!k0) return null;
+    if (k0 === "min_channel_height") return { field: "channel_height", digits: 4 };
+    if (k0 === "min_mid_room") return { field: "mid_room", digits: 4 };
+    if (k0 === "min_slope_norm") return { field: "slope_norm", digits: 4 };
+    if (k0 === "slope_abs_max") return { field: "slope_norm", digits: 4 };
+    if (k0 === "vol_shrink_threshold") return { field: "vol_ratio", digits: 2 };
+    if (k0 === "vol_shrink_min") return { field: "vol_ratio", digits: 2 };
+    if (k0 === "vol_shrink_max") return { field: "vol_ratio", digits: 2 };
+    if (k0 === "volatility_ratio_max") return { field: "vol_ratio", digits: 2 };
+    if (k0 === "cooling_period") return { field: "cooling_left", digits: 0 };
+    if (k0 === "cooling_days") return { field: "cooling_left", digits: 0 };
+    if (k0 === "pivot_confirm_days") return { field: "pivot_j", digits: 0 };
+    return null;
+  };
+
+  const fmtAny = (v, digits = 4) => {
+    if (v == null) return "-";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    const n = Number(v);
+    if (Number.isFinite(n)) return n.toFixed(digits);
+    return String(v);
+  };
+
+  const recent = _getRecentConfigKeySet();
+  const list = document.createElement("div");
+  list.className = "border border-slate-100 dark:border-slate-800 rounded-lg overflow-hidden";
+
+  for (const rawKey of keys) {
+    const k = _normalizeConfigKey(rawKey) || rawKey;
+    const row = document.createElement("div");
+    row.className = "px-2 py-1 flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors cursor-pointer";
+
+    const left = document.createElement("div");
+    left.className = "min-w-0";
+    const def = PARAM_DEFINITIONS[k];
+    const displayName = def && def.name ? `${def.name} (${k})` : k;
+    left.innerHTML = `<div class="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">${_escapeHtml(displayName)}</div>`;
+
+    const badges = document.createElement("div");
+    badges.className = "flex items-center gap-1 shrink-0";
+    if (recent.has(k)) {
+      const b = document.createElement("span");
+      b.className = "inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-900/40 text-[10px] font-bold";
+      b.textContent = "最近修改";
+      badges.appendChild(b);
+    }
+
+    const inputEl = _getConfigInputElByKey(k);
+    if (inputEl && _isDefaultDifferentFromCurrent(k, inputEl)) {
+      const b = document.createElement("span");
+      b.className = "inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-900/40 text-[10px] font-bold";
+      b.textContent = "默认≠当前";
+      badges.appendChild(b);
+    }
+
+    const right = document.createElement("div");
+    right.className = "flex items-center gap-2 shrink-0";
+    right.appendChild(badges);
+    const valWrap = document.createElement("div");
+    valWrap.className = "flex flex-col items-end leading-tight";
+
+    const getV = (obj) => {
+      if (!obj || typeof obj !== "object") return undefined;
+      if (rawKey in obj) return obj[rawKey];
+      if (k in obj) return obj[k];
+      return undefined;
+    };
+
+    const vInput = getV(input);
+    const vRunning = getV(running);
+    let vActual = undefined;
+    let vActualDigits = 4;
+    if (actual) {
+      const m = runtimeMap(k);
+      if (m && m.field) {
+        vActual = actual[m.field];
+        vActualDigits = Number.isFinite(Number(m.digits)) ? Number(m.digits) : 4;
+      }
+    }
+
+    const mkLine = (label, value, cls) => {
+      const line = document.createElement("div");
+      line.className = "flex items-center gap-1";
+      const lab = document.createElement("span");
+      lab.className = "text-[10px] font-bold text-slate-400 dark:text-slate-500";
+      lab.textContent = label;
+      const valEl = document.createElement("span");
+      valEl.className = cls;
+      valEl.textContent = label === "实际" ? fmtAny(value, vActualDigits) : (value == null ? "-" : String(value));
+      line.appendChild(lab);
+      line.appendChild(valEl);
+      return line;
+    };
+
+    valWrap.appendChild(mkLine("配置", vInput, "font-mono text-[11px] text-slate-600 dark:text-slate-300"));
+    if (running && (vRunning != null) && String(vRunning) !== String(vInput)) {
+      valWrap.appendChild(mkLine("运行", vRunning, "font-mono text-[11px] text-slate-500 dark:text-slate-400"));
+    }
+    if (vActual != null) {
+      valWrap.appendChild(mkLine("实际", vActual, "font-mono text-[11px] text-slate-700 dark:text-slate-200"));
+    }
+    right.appendChild(valWrap);
+
+    row.appendChild(left);
+    row.appendChild(right);
+
+    row.addEventListener("click", () => _jumpToConfigKey(k));
+    list.appendChild(row);
+  }
+
+  groups.appendChild(list);
 }
 
 function _renderDebugTrades(trades, dailyData) {
@@ -2871,6 +4288,7 @@ function _renderDebugTrades(trades, dailyData) {
       const sigDate = _pickSignalDateForTrade(t, dailyData);
       const day = (dailyData || []).find(x => x && String(x.date || "").startsWith(sigDate));
       _renderDebugTrace(day ? day.trace : []);
+      _renderDebugParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: (_debugState.lastResult && _debugState.lastResult.params) ? _debugState.lastResult.params : null, __actual_env: (day && typeof day === "object") ? day : null });
     });
     tbody.appendChild(tr);
   }
@@ -2881,10 +4299,13 @@ function _renderDebugTrades(trades, dailyData) {
     const sigDate = _pickSignalDateForTrade(first, dailyData);
     const day = (dailyData || []).find(x => x && String(x.date || "").startsWith(sigDate));
     _renderDebugTrace(day ? day.trace : []);
+    _renderDebugParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: (_debugState.lastResult && _debugState.lastResult.params) ? _debugState.lastResult.params : null, __actual_env: (day && typeof day === "object") ? day : null });
   } else {
     _debugState.selectedTradeIdx = -1;
     _renderDebugFeatureSnapshot({});
-    _renderDebugTrace([]);
+    const last = (dailyData && Array.isArray(dailyData) && dailyData.length) ? dailyData[dailyData.length - 1] : null;
+    _renderDebugTrace(last && Array.isArray(last.trace) ? last.trace : []);
+    _renderDebugParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: (_debugState.lastResult && _debugState.lastResult.params) ? _debugState.lastResult.params : null, __actual_env: (last && typeof last === "object") ? last : null });
   }
 }
 
@@ -2931,7 +4352,7 @@ async function runDebugAnalyze() {
       throw new Error((data && (data.message || data.msg)) || "分析失败");
     }
     _renderDebugOverview(data.overview || {});
-    _renderDebugParamsPanel(data.params || {});
+    _renderDebugParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: (data.params || {}) });
     _renderDebugTrades(data.trades || [], data.daily_data || []);
   } catch (e) {
     alert("分析失败: " + toMsg(e));
@@ -2971,54 +4392,286 @@ function normalizeYmOrYmd(input, kind) {
 
 // ---------------------- Backtest Logic ----------------------
 
+let _btState = {
+  symbol: null,
+  runningParams: null
+};
+
+function _btSetTraceStatus(text) {
+  const el = document.getElementById("bt-trace-status");
+  if (el) el.textContent = text || "";
+}
+
+function _btSetTraceVisible(show) {
+  const wrap = document.getElementById("bt-trace-wrap");
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", !show);
+}
+
+function _btRenderTrace(trace) {
+  const tbody = document.getElementById("bt-trace");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const list = Array.isArray(trace) ? trace : [];
+  if (list.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="px-3 py-3 border-b border-slate-50 dark:border-slate-800/50 text-slate-500 dark:text-slate-400" colspan="6">暂无决策链数据（请在明细请求中启用 capture_logs）</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const step of list) {
+    if (!step || typeof step !== "object") continue;
+    const tr = document.createElement("tr");
+    const passed = step.passed;
+    const passedText = passed === true ? "通过" : (passed === false ? "失败" : "-");
+    const passedCls = passed === true ? "text-emerald-600" : (passed === false ? "text-rose-600" : "text-slate-500");
+    tr.innerHTML = `
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-bold text-slate-700 dark:text-slate-200">${_escapeHtml(step.step ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400">${_escapeHtml(step.check ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(step.threshold ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(step.actual ?? "-")}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-bold ${passedCls}">${_escapeHtml(passedText)}</td>
+      <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400">${_escapeHtml(step.reason ?? "-")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function _btPickLastTrace(signalLogs) {
+  const logs = Array.isArray(signalLogs) ? signalLogs : [];
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const it = logs[i];
+    if (!it || typeof it !== "object") continue;
+    const tr = it.trace;
+    if (Array.isArray(tr) && tr.length) return it;
+  }
+  return null;
+}
+
+function _btPickSignalDateForTrade(trade, signalLogs) {
+  const entry = (trade && (trade.entry_date || trade.entry_dt)) ? String(trade.entry_date || trade.entry_dt) : "";
+  const entryD = entry ? new Date(entry) : null;
+  if (!entryD || Number.isNaN(entryD.getTime())) return entry;
+  let best = null;
+  for (const it of (signalLogs || [])) {
+    if (!it || typeof it !== "object" || !it.date) continue;
+    if (Number(it.final_signal || 0) !== 1) continue;
+    const d = new Date(String(it.date));
+    if (Number.isNaN(d.getTime())) continue;
+    if (d.getTime() >= entryD.getTime()) continue;
+    if (!best || d.getTime() > best.getTime()) best = d;
+  }
+  if (best) return best.toISOString().slice(0, 10);
+  return entry;
+}
+
+function _btFirstFailedStep(trace) {
+  const list = Array.isArray(trace) ? trace : [];
+  for (const s of list) {
+    if (s && typeof s === "object" && s.passed === false) return s;
+  }
+  return null;
+}
+
+function _btClearDetail() {
+  const body = document.getElementById("bt-detail-body");
+  if (body) body.innerHTML = "";
+  const st = document.getElementById("bt-detail-status");
+  if (st) st.textContent = "-";
+  _btSetTraceVisible(false);
+  _btSetTraceStatus("");
+  _btRenderTrace([]);
+}
+
+function _btRenderTrades(symbol, trades, signalLogs) {
+  const tbody = document.getElementById("bt-detail-body");
+  const st = document.getElementById("bt-detail-status");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const list = Array.isArray(trades) ? trades : [];
+  let cum = 0.0;
+  if (list.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="px-3 py-6 text-center text-slate-400 dark:text-slate-500" colspan="16">无成交（将展示最后交易日的过滤原因）</td>`;
+    tbody.appendChild(tr);
+
+    _btSetTraceVisible(true);
+    const last = _btPickLastTrace(signalLogs);
+    const trace = last && Array.isArray(last.trace) ? last.trace : [];
+    const failed = _btFirstFailedStep(trace);
+    const dateText = last && (last.dt || last.date) ? String(last.dt || last.date).slice(0, 10) : "";
+    const failedText = failed ? `${failed.step || "Unknown"} · ${failed.reason || failed.check || ""}` : "";
+    if (st) st.textContent = `${symbol} · 无成交` + (dateText ? ` · ${dateText}` : "") + (failedText ? ` · 过滤：${failedText}` : "");
+    _btSetTraceStatus(dateText ? `日期：${dateText}` : "");
+    _btRenderTrace(trace);
+    _renderBacktestParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: _btState.runningParams, __actual_env: last });
+  } else {
+    for (const t of list) {
+      const x = t && typeof t === "object" ? t : {};
+      const pnl = Number(x.pnl);
+      if (Number.isFinite(pnl)) cum += pnl;
+      const ret = Number(x.return_rate ?? x.return_pct);
+      const retText = Number.isFinite(ret) ? `${(ret * 100).toFixed(2)}%` : "-";
+      const retCls = Number.isFinite(ret) ? (ret > 0 ? "text-red-600" : (ret < 0 ? "text-green-600" : "text-slate-500")) : "text-slate-500";
+      const idxOk = (x.entry_index_confirmed === true) ? "✓" : "-";
+      const tr = document.createElement("tr");
+      tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer";
+      tr.innerHTML = `
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 dark:text-slate-300 font-mono">${_escapeHtml(String(x.symbol || symbol || "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(String(x.entry_dt || x.entry_date || "-").slice(0, 10))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(String(x.exit_dt || x.exit_date || "-").slice(0, 10))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 text-right font-mono">${_escapeHtml(String(x.qty ?? "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(String(x.entry_price ?? "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(String(x.exit_price ?? "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 dark:text-slate-200">${_escapeHtml(String(x.entry_reason || "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 dark:text-slate-200">${_escapeHtml(String(x.exit_reason || "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(x.initial_stop == null ? "-" : String(x.initial_stop))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(x.trailing_stop == null ? "-" : String(x.trailing_stop))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono font-bold text-slate-700 dark:text-slate-200">${_escapeHtml(Number.isFinite(pnl) ? pnl.toFixed(2) : "-")}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(Number.isFinite(cum) ? cum.toFixed(2) : "-")}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono font-bold ${retCls}">${_escapeHtml(retText)}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(x.r_multiple == null ? "-" : String(x.r_multiple))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(String(x.holding_days ?? "-"))}</td>
+        <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-center font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(idxOk)}</td>
+      `;
+      tr.addEventListener("click", () => {
+        const sigDate = _btPickSignalDateForTrade(x, signalLogs);
+        const day = (signalLogs || []).find(it => it && String(it.date || "").startsWith(sigDate));
+        const trace = day && Array.isArray(day.trace) ? day.trace : [];
+        const failed = _btFirstFailedStep(trace);
+        const failedText = failed ? `${failed.step || "Unknown"} · ${failed.reason || failed.check || ""}` : "";
+        _btSetTraceVisible(true);
+        _btSetTraceStatus(sigDate ? `日期：${sigDate}` : "");
+        if (st) st.textContent = `${symbol} · 成交 · ${sigDate || "-"}` + (failedText ? ` · 过滤：${failedText}` : "");
+        _btRenderTrace(trace);
+        _renderBacktestParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: _btState.runningParams, __actual_env: day });
+      });
+      tbody.appendChild(tr);
+    }
+
+    _btSetTraceVisible(false);
+    _btSetTraceStatus("");
+    _btRenderTrace([]);
+    if (st) st.textContent = `${symbol} · ${list.length} 笔成交`;
+  }
+}
+
+async function _btLoadDetail(symbol) {
+  const st = document.getElementById("bt-detail-status");
+  if (st) st.textContent = `${symbol} · 加载中...`;
+  _btSetTraceVisible(false);
+  _btSetTraceStatus("");
+  _btRenderTrace([]);
+  try {
+    const data = await fetchBacktestDetailForSymbol(symbol);
+    const trades = data && (data.trades || (data.data && data.data.trades)) ? (data.trades || data.data.trades) : [];
+    const signalLogs = data && (data.signal_logs || (data.data && data.data.signal_logs)) ? (data.signal_logs || data.data.signal_logs) : [];
+    const runningParams = data && (data.params || (data.data && data.data.params)) ? (data.params || data.data.params) : null;
+    _btState = { symbol: String(symbol || ""), runningParams: runningParams };
+    _renderBacktestParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: runningParams, __actual_env: null });
+    _btRenderTrades(symbol, trades, signalLogs);
+  } catch (e) {
+    if (st) st.textContent = `${symbol} · 获取详情失败`;
+    _btSetTraceStatus("");
+    _btRenderTrace([]);
+  }
+}
+
 function renderBacktestRowToTbody(tbody, d) {
   if (!tbody || !d) return;
   const tr = document.createElement("tr");
   tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors";
-  
-  const env = d.env || {};
-  const stats = d.stats || {};
-  const isRejected = !!d.error || (d.reasons && d.reasons.length > 0);
-  
-  // Format helpers
-  const fmtPct = (v) => {
-    if (v == null) return "-";
+  const symbol = d.symbol || "-";
+  const beg = d.beg || null;
+  const end = d.end || null;
+  const range = (beg || end) ? `${beg || "-"} ~ ${end || "-"}` : "-";
+
+  const totalReturn = d.total_return;
+  const annualizedReturn = d.annualized_return;
+  const maxDrawdown = d.max_drawdown;
+  const drawdownDuration = d.drawdown_duration;
+  const maxDrawdownDate = d.max_drawdown_date;
+  const sharpeRatio = d.sharpe_ratio;
+  const expectancy = d.expectancy;
+  const profitFactor = d.profit_factor;
+  const avgHoldDays = d.avg_hold_days;
+  const score = d.score;
+  const scoreRobust = d.score_robust;
+  const winRate = d.win_rate;
+  const trades = d.trades;
+  const maxWinStreak = d.max_win_streak;
+  const maxLossStreak = d.max_loss_streak;
+  const finalEquity = d.final_equity;
+  const anomalies = d.anomalies;
+
+  tr.dataset.symbol = String(symbol);
+  tr.dataset.range = String(range);
+  tr.dataset.total_return = String(totalReturn ?? "");
+  tr.dataset.annualized_return = String(annualizedReturn ?? "");
+  tr.dataset.max_drawdown = String(maxDrawdown ?? "");
+  tr.dataset.sharpe_ratio = String(sharpeRatio ?? "");
+  tr.dataset.expectancy = String(expectancy ?? "");
+  tr.dataset.profit_factor = String(profitFactor ?? "");
+  tr.dataset.avg_hold_days = String(avgHoldDays ?? "");
+  tr.dataset.score = String(score ?? "");
+  tr.dataset.score_robust = String(scoreRobust ?? "");
+  tr.dataset.win_rate = String(winRate ?? "");
+  tr.dataset.trades = String(trades ?? "");
+  tr.dataset.final_equity = String(finalEquity ?? "");
+  tr.dataset.anomalies = String(anomalies ?? "");
+
+  const fmtPct = (v, opts = {}) => {
+    const clsBase = (opts && typeof opts.clsBase === "string") ? opts.clsBase : "";
+    const signColor = (opts && typeof opts.signColor === "boolean") ? opts.signColor : true;
+    if (v == null) return `<span class="${clsBase}">-</span>`;
     const n = Number(v);
-    const cls = n > 0 ? "text-red-600" : (n < 0 ? "text-green-600" : "text-slate-500");
-    return `<span class="${cls}">${(n * 100).toFixed(2)}%</span>`;
+    if (!Number.isFinite(n)) return `<span class="${clsBase}">-</span>`;
+    const clsSign = signColor ? (n > 0 ? "text-red-600" : (n < 0 ? "text-green-600" : "text-slate-500")) : "";
+    return `<span class="${[clsBase, clsSign].filter(Boolean).join(" ")}">${(n * 100).toFixed(2)}%</span>`;
   };
-  
-  // Prepare Rejection Text
-  let rejText = "-";
-  let rejBtn = "";
-  
-  if (isRejected) {
-    const reasons = d.reasons || [];
-    const count = reasons.length;
-    // Example: Volume condition failed: 195 (低于下限:120, 高于上限:75)
-    // We construct a summary string
-    const map = {};
-    reasons.forEach(r => {
-      const k = r.filter_type || "Unknown";
-      if (!map[k]) map[k] = 0;
-      map[k]++;
-    });
-    const summary = Object.entries(map).map(([k, v]) => `${k}: ${v}`).join(", ");
-    rejText = `<span class="text-slate-400 text-[10px]">${summary || "Rejected"}</span>`;
-    
-    // Add "View Details" button
-    rejBtn = `<button onclick="showRejectionDetails('${d.symbol}')" class="text-blue-600 hover:text-blue-800 underline text-[10px] ml-2">查看详情</button>`;
-  }
+
+  const fmtNum = (v, digits = 2) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    return n.toFixed(digits);
+  };
+
+  const fmtInt = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    return String(Math.trunc(n));
+  };
+
+  const fmtMoney = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    try {
+      return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } catch (_) {
+      return n.toFixed(2);
+    }
+  };
 
   tr.innerHTML = `
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 font-medium">${d.symbol}</td>
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right text-slate-600">${stats.trades || 0}</td>
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono">${fmtPct(stats.win_rate)}</td>
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono font-bold">${fmtPct(stats.total_return)}</td>
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-green-600">${fmtPct(stats.max_drawdown)}</td>
-    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-xs">
-      ${rejText} ${rejBtn}
-    </td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-700 dark:text-slate-300 font-medium font-mono">${_escapeHtml(symbol)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400 font-mono">${_escapeHtml(range)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono font-bold">${fmtPct(totalReturn)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono">${fmtPct(annualizedReturn)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono">${fmtPct(maxDrawdown, { clsBase: "text-green-600", signColor: false })}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtInt(drawdownDuration))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(maxDrawdownDate || "-")}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtNum(sharpeRatio, 2))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtNum(expectancy, 4))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtNum(profitFactor, 2))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtNum(avgHoldDays, 1))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-700 dark:text-slate-300 font-bold">${_escapeHtml(fmtNum(score, 2))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-700 dark:text-slate-300">${_escapeHtml(fmtNum(scoreRobust, 2))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono">${fmtPct(winRate)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtInt(trades))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(`${String(Number.isFinite(Number(maxWinStreak)) ? Math.trunc(Number(maxWinStreak)) : 0)}/${String(Number.isFinite(Number(maxLossStreak)) ? Math.trunc(Number(maxLossStreak)) : 0)}`)}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 text-right font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtMoney(finalEquity))}</td>
+    <td class="px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 font-mono text-slate-600 dark:text-slate-400">${_escapeHtml(fmtInt(anomalies))}</td>
   `;
   tbody.appendChild(tr);
 }
@@ -3027,20 +4680,32 @@ async function fetchBacktestDetailForSymbol(symbol) {
   const dataDir = val("bt-data-dir", "").trim();
   const beg = normalizeYmOrYmd(val("bt-beg", ""), "beg");
   const end = normalizeYmOrYmd(val("bt-end", ""), "end");
-  
-  const req = {
-    symbol,
-    data_dir: dataDir,
-    beg,
-    end,
-    ...getStrategyConfigFromUI()
+
+  const useIndex = boolv("bt-use-index", true);
+  const indexData = val("bt-index-data", "").trim();
+  const indexSymbol = val("bt-index-symbol", "000300.SH").trim();
+  const calcScore = boolv("bt-calc-score", false);
+  const calcRobust = boolv("bt-calc-robust", false);
+  const robustSegments = intv("bt-robust-segments", 4);
+
+  const config = {
+    ...getStrategyConfigFromUI(),
+    capture_logs: true,
+    index_data: useIndex ? (indexData || null) : null,
+    index_symbol: useIndex ? (indexSymbol || null) : null,
+    calc_score: !!calcScore,
+    calc_robust: !!calcRobust,
+    robust_segments: Number.isFinite(Number(robustSegments)) ? Number(robustSegments) : 0,
   };
-  
+
   const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(req)) {
-    if (v != null) params.append(k, v);
-  }
-  
+  params.set("symbol", symbol);
+  params.set("data_dir", dataDir);
+  params.set("config", JSON.stringify(config));
+  if (beg) params.set("beg", beg);
+  if (end) params.set("end", end);
+  params.set("detail", "true");
+
   const resp = await fetch(`/api/backtest/detail?${params.toString()}`);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -3067,57 +4732,29 @@ async function runChannelHFBacktest(symbolsOverride = null) {
   if (status) status.textContent = "回测中...";
 
   try {
+    const useIndex = boolv("bt-use-index", true);
+    const indexData = val("bt-index-data", "").trim();
+    const indexSymbol = val("bt-index-symbol", "000300.SH").trim();
+    const calcScore = boolv("bt-calc-score", false);
+    const calcRobust = boolv("bt-calc-robust", false);
+    const robustSegments = intv("bt-robust-segments", 4);
+
     const req = {
       data_dir: dataDir,
       symbols: parseSymbolsInput(val("bt-symbols", "")),
       beg: normalizeYmOrYmd(val("bt-beg", ""), "beg"),
       end: normalizeYmOrYmd(val("bt-end", ""), "end"),
+      index_data: useIndex ? (indexData || null) : null,
+      index_symbol: useIndex ? (indexSymbol || null) : null,
+      calc_score: !!calcScore,
+      calc_robust: !!calcRobust,
+      robust_segments: Number.isFinite(Number(robustSegments)) ? Number(robustSegments) : 0,
+      detail: false,
       ...getStrategyConfigFromUI()
     };
     
     if (symbolsOverride) req.symbols = symbolsOverride;
-
-    const resp = await fetch("/api/backtest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req)
-    });
-
-    if (!resp.ok) throw new Error("启动失败");
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buf = "";
-    let total = 0, done = 0;
-
-    while (true) {
-      const { done: streamDone, value } = await reader.read();
-      if (streamDone) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const msg = JSON.parse(line);
-
-        if (msg.type === "start") {
-          total = msg.total;
-          if (status) status.textContent = `回测中 0/${total}`;
-        }
-        if (msg.type === "result") {
-          done++;
-          renderBacktestRowToTbody(tbody, msg.data);
-          if (status) status.textContent = `回测中 ${done}/${total}`;
-        }
-        if (msg.type === "end") {
-          if (status) status.textContent = "完成";
-        }
-        if (msg.type === "error") {
-          appendRunLog(`Error: ${msg.message}`);
-        }
-      }
-    }
+    await runBacktestTask(req, { statusEl: status, tbody, logsEl });
   } catch (e) {
     if (status) status.textContent = `Error: ${e.message}`;
   } finally {
@@ -3132,11 +4769,16 @@ function initApp() {
   initNav();
   initAutoSaveInputs();
   initPresets();
+  initPresetSlotsAndVersioning();
   initDebugUI();
   initConfigParamHelpBinding();
+  initRecentConfigKeyTracking();
   _smartLoadFileList();
   _poolInitUI();
   initBatchTasksPanel();
+  initTaskCenterPanel();
+  _renderDebugParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: null });
+  _renderBacktestParamsPanel({ __input_params: getStrategyConfigFromUI(), __running_params: null });
   
   // Bind Batch Test buttons
   const btnExp = document.getElementById("pt-export-btn");
@@ -3151,6 +4793,39 @@ function initApp() {
   // Bind Backtest button
   const btBtn = document.getElementById("bt-btn");
   if (btBtn) btBtn.onclick = () => runChannelHFBacktest();
+
+  const btBody = document.getElementById("bt-results");
+  if (btBody) {
+    btBody.onclick = (ev) => {
+      const t = ev.target;
+      const row = t && typeof t.closest === "function" ? t.closest("tr") : null;
+      const symbol = row && row.dataset ? row.dataset.symbol : null;
+      if (symbol) _btLoadDetail(String(symbol));
+    };
+  }
+  const btClear = document.getElementById("bt-detail-clear");
+  if (btClear) btClear.onclick = () => _btClearDetail();
+  _btClearDetail();
+
+  const scanBody = document.getElementById("scan-results");
+  if (scanBody) {
+    scanBody.onclick = (ev) => {
+      const t = ev.target;
+      const row = t && typeof t.closest === "function" ? t.closest("tr") : null;
+      if (!row || !row.dataset) return;
+      let trace = [];
+      try {
+        trace = JSON.parse(row.dataset.trace || "[]");
+      } catch (_) {
+        trace = [];
+      }
+      const symbol = row.dataset.symbol || "-";
+      const dt = row.dataset.date || "";
+      _scanSetTraceVisible(true);
+      _scanSetTraceStatus(`${symbol}${dt ? ` · ${dt}` : ""}`);
+      _scanRenderTrace(trace);
+    };
+  }
   
   // Bind Parameter Help
   window.showParamHelpModal = showParamHelpModal;

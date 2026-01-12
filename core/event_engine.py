@@ -63,6 +63,8 @@ class EventBacktestResult:
     validation_data: dict = field(default_factory=dict)
     benchmark_equity_curve: list[EquityPoint] = field(default_factory=list)
     data_anomalies: list[dict] = field(default_factory=list)
+    data_anomalies: list[dict] = field(default_factory=list) # 数据异常记录
+
     # 统计字段
     _cached_summary: str = field(default="", init=False, repr=False)
     _cached_trades_text: str = field(default="", init=False, repr=False)
@@ -218,39 +220,63 @@ class EventBacktestResult:
         return self._cached_performance_text
 
     def to_dict(self) -> dict:
-        """
-        转换为字典（用于API返回）
-        """
-        # --- 生成 rejections 列表的逻辑 ---
-        rejections = []
-        for log in self.signal_logs:
-            date_val = log.get('date')
-            symbol_val = log.get('symbol')
-            trace = log.get('trace', [])
-            
-            # 遍历trace，找出所有未通过的检查步骤
-            for trace_item in trace:
-                if trace_item.get('passed') is False:
-                    rejections.append({
-                        'date': date_val,
-                        'symbol': symbol_val,
-                        'step': trace_item.get('step', 'Unknown'),
-                        'check': trace_item.get('check', ''),
-                        'actual': trace_item.get('actual', ''),
-                        'threshold': trace_item.get('threshold', ''),
-                        'reason': trace_item.get('reason', 'Filter not passed')
-                    })
-        # --- 新增逻辑结束 ---
-
+        """转换为字典格式，用于前端展示和API返回"""
         return {
-            "metrics": self.metrics.to_dict() if self.metrics else {},
-            "trades": [t.to_dict() for t in self.trades],
+            "summary": self.summary_text(),
+            "performance_text": self.performance_text(),
+            "trades_text": self.trades_text(),
+            "equity_curve": [
+                {"dt": p.dt.isoformat(), "equity": round(p.equity, 2)} 
+                for p in self.equity_curve
+            ],
+            "benchmark_equity_curve": [
+                {"dt": p.dt.isoformat(), "equity": round(p.equity, 2)} 
+                for p in self.benchmark_equity_curve
+            ],
+            "monthly_returns": self.metrics.monthly_returns,
+            "metrics": {
+                "initial_equity": round(self.equity_curve[0].equity if self.equity_curve else 0, 2),
+                "final_equity": round(self.metrics.final_equity, 2),
+                "total_return": round(self.metrics.total_return, 4),
+                "annual_return": round(self.metrics.annual_return, 4),
+                "cagr": round(self.metrics.cagr, 4),
+                "max_drawdown": round(self.metrics.max_drawdown, 4),
+                "max_drawdown_duration": self.metrics.max_drawdown_detail.drawdown_duration if self.metrics.max_drawdown_detail is not None else None,
+                "sharpe": round(self.metrics.sharpe, 4),
+                "sortino": round(self.metrics.sortino, 4),
+                "calmar": round(self.metrics.calmar, 4),
+                "tail_ratio": round(self.metrics.tail_ratio, 4),
+                "expectancy": round(self.metrics.expectancy, 4),
+                "profit_factor": round(self.metrics.profit_factor, 4),
+                "largest_loss": round(self.metrics.largest_loss, 2),
+                "trade_count": self.metrics.trade_count,
+                "win_rate": round(self.metrics.win_rate, 4),
+                "avg_r_multiple": round(self.metrics.avg_r_multiple, 4),
+            },
+            "trades": [
+                {
+                    "symbol": t.symbol,
+                    "entry_dt": t.entry_dt.isoformat(),
+                    "exit_dt": t.exit_dt.isoformat(),
+                    "qty": t.qty,
+                    "entry_price": round(t.entry_price, 3),
+                    "exit_price": round(t.exit_price, 3),
+                    "pnl": round(t.pnl, 2),
+                    "return_rate": round((t.exit_price / t.entry_price - 1) if t.entry_price != 0 else 0, 4),
+                    "holding_days": t.holding_days,
+                    "entry_reason": t.entry_reason,
+                    "exit_reason": t.exit_reason,
+                    "initial_stop": (round(t.initial_stop, 3) if t.initial_stop is not None else None),
+                    "trailing_stop": (round(t.trailing_stop, 3) if t.trailing_stop is not None else None),
+                    "r_multiple": (round(t.r_multiple, 4) if t.r_multiple is not None else None),
+                    "entry_index_confirmed": bool(t.entry_index_confirmed),
+                }
+                for t in self.trades
+            ],
             "signal_logs": self.signal_logs,
             "decision_logs": self.decision_logs,
             "validation_data": self.validation_data,
-            "data_anomalies": self.data_anomalies,
-            # --- 将生成的rejections列表加入到返回字典中 ---
-            "rejections": rejections
+            "data_anomalies": self.data_anomalies
         }
 
 
